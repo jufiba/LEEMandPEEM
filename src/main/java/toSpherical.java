@@ -71,10 +71,10 @@ public class toSpherical implements Command, Previewable {
 	@Parameter(label = "Result Rho", type = ItemIO.OUTPUT)
 	private Dataset result_rho;
 
-	@Parameter(label = "Result Theta", type = ItemIO.OUTPUT)
+	@Parameter(label = "Result Theta (Polar)", type = ItemIO.OUTPUT)
 	private Dataset result_theta;
 
-	@Parameter(label = "Result Phi", type = ItemIO.OUTPUT)
+	@Parameter(label = "Result Phi (Azimuthal)", type = ItemIO.OUTPUT)
 	private Dataset result_phi;
 
 
@@ -94,8 +94,8 @@ public class toSpherical implements Command, Previewable {
 		}
 		
 		result_rho= getRho(d1,d2,d3);
-		result_theta= getAzimuthal(d1,d2,d3,angle_degrees);
-		result_phi= getPolar(d1,d2,d3,angle_degrees);
+		result_phi= getAzimuthal(d1,d2,d3,angle_degrees);
+		result_theta= getPolar(d1,d2,d3,angle_degrees);
 		
 	}
 

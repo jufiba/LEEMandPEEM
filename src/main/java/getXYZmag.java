@@ -63,28 +63,28 @@ public class getXYZmag implements Command, Previewable {
 	@Parameter(label = "Image 1")
 	private Dataset d1;
 
-	@Parameter(label="Polar angle (phi) 1")
+	@Parameter(label="Azimuthal angle (phi) 1")
 	private Double phi1;
 
-	@Parameter(label="Azimuthal angle (theta) 1")
+	@Parameter(label="Polar angle (theta) 1")
 	private Double theta1;
 
 	@Parameter(label = "Image 2")
 	private Dataset d2;
 
-	@Parameter(label="Polar angle (phi) 2")
+	@Parameter(label="Azimuthal angle (phi) 2")
 	private Double phi2;
 
-	@Parameter(label="Azimuthal angle (theta) 2")
+	@Parameter(label="Polar angle (theta) 2")
 	private Double theta2;
 	
 	@Parameter(label = "Image 3")
 	private Dataset d3;
-	
-	@Parameter(label="Polar angle (phi) 3")
-	private Double phi3;
 
-	@Parameter(label="Azimuthal angle (theta) 3")
+	@Parameter(label="Azimuthal angle (phi) 3")
+	private Double phi3;
+	
+	@Parameter(label="Polar angle (theta) 3")
 	private Double theta3;
 
 	@Parameter(label = "Result X", type = ItemIO.OUTPUT)
@@ -115,9 +115,9 @@ public class getXYZmag implements Command, Previewable {
 			phi3*=Math.PI/180;
 		}
 	
-		Vector3d a1= Vector3d.Spherical(theta1,phi1);
-		Vector3d a2= Vector3d.Spherical(theta2,phi2);
-		Vector3d a3= Vector3d.Spherical(theta3,phi3);
+		Vector3d a1= Vector3d.Spherical(phi1,theta1);
+		Vector3d a2= Vector3d.Spherical(phi2,theta2);
+		Vector3d a3= Vector3d.Spherical(phi3,theta3);
 		
 		Vector3d b1= Vector3d.perp(a1,a2,a3);
 		Vector3d b2= Vector3d.perp(a2,a3,a1);
@@ -128,14 +128,10 @@ public class getXYZmag implements Command, Previewable {
 			return;
 		}
 		
-		result_x= getComponent(d1,d2,d3,b1.getX(),b2.getX(),b3.getX());
-		result_y= getComponent(d1,d2,d3,b1.getY(),b2.getY(),b3.getY());
-		result_z= getComponent(d1,d2,d3,b1.getZ(),b2.getZ(),b3.getZ());
-		
-		//result1 = addRandomAccess(dataset1, dataset2);
-		//result2 = addOpsSerial(dataset1, dataset2, new FloatType());
-		//result3 = addOpsParallel(dataset1, dataset2, new FloatType());
-		
+		result_x= getComponent(d1,d2,d3,b1.getX(),b2.getX(),b3.getX(),"X-axis");
+		result_y= getComponent(d1,d2,d3,b1.getY(),b2.getY(),b3.getY(),"Y-axis");
+		result_z= getComponent(d1,d2,d3,b1.getZ(),b2.getZ(),b3.getZ(),"Z-axis");
+	
 	}
 
 	@Override
@@ -157,12 +153,13 @@ public class getXYZmag implements Command, Previewable {
 	 * @param f1
 	 * @param f2
 	 * @param f3
+	 * @param name
 	 * @return
 	 */
 	@SuppressWarnings({ "rawtypes" })
 	private Dataset getComponent(final Dataset d1, final Dataset d2, final Dataset d3, 
-			final Double f1, final Double f2, final Double f3) {
-		final Dataset result = create(d1, d2, new FloatType());
+			final Double f1, final Double f2, final Double f3, String name) {
+		final Dataset result = create(d1, d2, new FloatType(), name);
 
 		// sum data into result dataset
 		final RandomAccess<? extends RealType> ra1 = d1.getImgPlus().randomAccess();
@@ -194,7 +191,7 @@ public class getXYZmag implements Command, Previewable {
 	 * datasets.
 	 */
 	private <T extends RealType<T> & NativeType<T>> Dataset create(
-		final Dataset d1, final Dataset d2, final T type)
+		final Dataset d1, final Dataset d2, final T type, String name)
 	{
 		final int dimCount = Math.min(d1.numDimensions(), d2.numDimensions());
 		final long[] dims = new long[dimCount];
@@ -203,7 +200,7 @@ public class getXYZmag implements Command, Previewable {
 			dims[i] = Math.min(d1.dimension(i), d2.dimension(i));
 			axes[i] = d1.numDimensions() > i ? d1.axis(i).type() : d2.axis(i).type();
 		}
-		return datasetService.create(type, dims, "result", axes);
+		return datasetService.create(type, dims, name, axes);
 	}
 
 }

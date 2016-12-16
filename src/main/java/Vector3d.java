@@ -59,9 +59,9 @@ public class Vector3d {
         this.z = position[2];
     }
     
-    // If only two parameters, interpret them as unitary vector with azimuthal angle theta and polar angle phi
-    public static Vector3d Spherical(double theta, double phi) {
-    	return new Vector3d(Math.sin(phi)*Math.cos(theta),Math.sin(phi)*Math.sin(theta),Math.cos(phi));
+    // If only two parameters, interpret them as unitary vector with azimuthal angle phi and polar angle theta (using physics naming scheme)
+    public static Vector3d Spherical(double phi, double theta) {
+    	return new Vector3d(Math.sin(theta)*Math.cos(phi),Math.sin(theta)*Math.sin(phi),Math.cos(theta));
     }
     
     public double getX() {
