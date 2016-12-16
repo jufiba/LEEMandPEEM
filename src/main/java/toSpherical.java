@@ -71,12 +71,12 @@ public class toSpherical implements Command, Previewable {
 	@Parameter(label = "Result Rho", type = ItemIO.OUTPUT)
 	private Dataset result_rho;
 
-	@Parameter(label = "Result Theta (Polar)", type = ItemIO.OUTPUT)
-	private Dataset result_theta;
 
 	@Parameter(label = "Result Phi (Azimuthal)", type = ItemIO.OUTPUT)
 	private Dataset result_phi;
-
+	
+	@Parameter(label = "Result Theta (Polar)", type = ItemIO.OUTPUT)
+	private Dataset result_theta;
 
 	//public static void main(final String... args) throws Exception {
 		// create the ImageJ application context with all available services
