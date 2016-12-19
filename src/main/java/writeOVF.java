@@ -14,6 +14,26 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.Date;
 
+import net.imagej.Dataset;
+import net.imagej.DatasetService;
+import net.imagej.ImageJ;
+import net.imagej.ImgPlus;
+import net.imagej.ops.OpService;
+import net.imagej.ops.Ops;
+import net.imglib2.RandomAccessible;
+import net.imglib2.RandomAccessibleInterval;
+import net.imglib2.RandomAccess;
+
+import net.imglib2.img.Img;
+import net.imglib2.meta.CalibratedSpace;
+import net.imglib2.type.NativeType;
+import net.imglib2.type.numeric.RealType;
+import net.imglib2.type.numeric.real.FloatType;
+import net.imglib2.view.Views;
+import org.scijava.command.Command;
+import org.scijava.plugin.Parameter;
+import org.scijava.plugin.Plugin;
+
 import org.scijava.ItemVisibility;
 import org.scijava.app.StatusService;
 import org.scijava.command.Command;
@@ -22,19 +42,9 @@ import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
+import imagej.data;
+
 import io.scif.services.DatasetIOService;
-
-import net.imagej.Dataset;
-import net.imagej.DatasetService;
-import net.imagej.ImageJ;
-import net.imagej.axis.AxisType;
-
-import net.imglib2.Cursor;
-import net.imglib2.RandomAccess;
-import net.imglib2.img.Img;
-import net.imglib2.type.NativeType;
-import net.imglib2.type.numeric.RealType;
-import net.imglib2.type.numeric.real.FloatType;
 
 @Plugin(type = Command.class, headless = true,
 	menuPath = "Plugins>LEEMandPEEM>writeOVF")
@@ -49,8 +59,8 @@ public class writeOVF implements Command, Previewable {
 	@Parameter
 	private DatasetService datasetService;
 
-	@Parameter
-	private DatasetIOService datasetIOService;
+	//@Parameter
+	//private DatasetIOService datasetIOService;
 
 	@Parameter(visibility = ItemVisibility.MESSAGE)
 	private final String header = "Write an OVF 1.0 OOMMF vector file from three images assumed to be the XYZ components";
@@ -94,9 +104,11 @@ public class writeOVF implements Command, Previewable {
 		if (x.numDimensions()>2) {
 			log.error("Only 2D images, please");
 		}
-		//ImgPlus img=x.getImgPlus();
 		
-		//long res_x=x.getImgPlus().getResolution().getPixelHeight();
+		//double xstepsize=x.getImgPlus().calibration(0);
+		//double ystepsize=x.getImgPlus().calibration(1);
+		//double zstepsize=xstepsize;
+		
 		try {
 			DataOutputStream os= new DataOutputStream(new BufferedOutputStream(new FileOutputStream(outputfile)));
 			// DataOutputStream is big endian, as is OVF 1.0
@@ -175,8 +187,8 @@ public class writeOVF implements Command, Previewable {
 		final long nx=x.dimension(0);
 		final long ny=x.dimension(1);
 		log.info("Size is "+nx+" "+ny);
-		for (long i=0;i<nx;i++) {
-			for(long j=0;j<ny;j++) {
+		for(long j=0;j<ny;j++) {
+			for (long i=0;i<nx;i++) {
 				pos[0]=i;
 				pos[1]=j;
 				ra1.setPosition(pos);

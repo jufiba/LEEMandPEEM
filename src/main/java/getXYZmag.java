@@ -8,16 +8,11 @@
  * 
  */
 
-import java.io.File;
-import java.io.IOException;
-
 import net.imagej.Dataset;
 import net.imagej.DatasetService;
-import net.imagej.ImageJ;
 import net.imagej.axis.AxisType;
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccess;
-import net.imglib2.img.Img;
 import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.RealType;
 import net.imglib2.type.numeric.real.FloatType;
@@ -31,7 +26,7 @@ import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
-import io.scif.services.DatasetIOService;
+//import io.scif.services.DatasetIOService;
 
 import java.lang.Math;
 
@@ -51,8 +46,8 @@ public class getXYZmag implements Command, Previewable {
 	@Parameter
 	private DatasetService datasetService;
 
-	@Parameter
-	private DatasetIOService datasetIOService;
+	//@Parameter
+	//private DatasetIOService datasetIOService;
 
 	@Parameter(visibility = ItemVisibility.MESSAGE)
 	private final String header = "Get XYZ components from three images with components along arbitrary directions";
@@ -141,7 +136,7 @@ public class getXYZmag implements Command, Previewable {
 
 	@Override
 	public void preview() {
-		log.info("previews AddTwoDatasets");
+		log.info("make XYZ datasets out of arbitrary datasets");
 		statusService.showStatus(header);
 	}
 

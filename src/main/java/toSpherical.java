@@ -9,16 +9,12 @@
  * 
  */
 
-import java.io.File;
-import java.io.IOException;
 
 import net.imagej.Dataset;
 import net.imagej.DatasetService;
-import net.imagej.ImageJ;
 import net.imagej.axis.AxisType;
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccess;
-import net.imglib2.img.Img;
 import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.RealType;
 import net.imglib2.type.numeric.real.FloatType;

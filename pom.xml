@@ -32,6 +32,12 @@
 			<groupId>net.imagej</groupId>
 			<artifactId>imagej</artifactId>
 		</dependency>
+		<dependency>
+		 	<groupId>net.imglib2</groupId>
+ 		 	<artifactId>pom-imglib2</artifactId>
+  			<version>8.0.0</version>
+  			<type>pom</type>
+  		</dependency>
 	</dependencies>
 	
 </project>
