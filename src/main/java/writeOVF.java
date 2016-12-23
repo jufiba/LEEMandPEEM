@@ -42,7 +42,7 @@ import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
-import imagej.data;
+//import net.imagej.*;
 
 import io.scif.services.DatasetIOService;
 
@@ -83,6 +83,13 @@ public class writeOVF implements Command, Previewable {
 	@Parameter(label = "Z Step Size")
 	private String zstepsize;
 	
+	@Parameter(label = "Text format")
+	private Boolean format_text;
+	
+	@Parameter(label ="Binary8 format")
+	private Boolean format_binary8;
+
+	
 	@Parameter(label="Output File")
 	private String outputfile;
 
@@ -105,7 +112,7 @@ public class writeOVF implements Command, Previewable {
 			log.error("Only 2D images, please");
 		}
 		
-		//double xstepsize=x.getImgPlus().calibration(0);
+		//double xstepsize=x.calibration(0);
 		//double ystepsize=x.getImgPlus().calibration(1);
 		//double zstepsize=xstepsize;
 		
@@ -136,7 +143,7 @@ public class writeOVF implements Command, Previewable {
 	protected void writeHeader(DataOutputStream os, long nx, long ny, String name) throws IOException {
 		os.writeBytes("# OOMMF: rectangular mesh v1.0\n");
 		os.writeBytes("# Segment count: 1\n");
-		os.writeBytes("# Begin: Segment\n");
+		os.writeBytes("# Begin: segment\n");
 		os.writeBytes("# Begin: Header\n");
 		os.writeBytes("# Title: Generated from ImageJ\n");
 		os.writeBytes("# Desc: Name "+name+"\n");
@@ -163,12 +170,10 @@ public class writeOVF implements Command, Previewable {
 		os.writeBytes("# ValueRangeMinMag: 1e-8\n");
 		os.writeBytes("# ValueRangeMaxMag: 1.0\n");
 		os.writeBytes("# End: Header\n");
-		os.writeBytes("# Begin: Data Binary 4\n");
-		os.writeFloat(1234567.0f);
+		
 	}
 	protected void writeFooter(DataOutputStream os) throws IOException {
-		os.writeBytes("# End: Data Binary 4\n");
-		os.writeBytes("# End: Segment\n");
+		os.writeBytes("# End: segment\n");
 
 	}
 	/**
@@ -183,23 +188,71 @@ public class writeOVF implements Command, Previewable {
 		final RandomAccess<? extends RealType> ra2 = y.getImgPlus().randomAccess();
 		final RandomAccess<? extends RealType> ra3 = z.getImgPlus().randomAccess();
 		
-		final long[] pos = new long[x.numDimensions()];
-		final long nx=x.dimension(0);
-		final long ny=x.dimension(1);
-		log.info("Size is "+nx+" "+ny);
-		for(long j=0;j<ny;j++) {
-			for (long i=0;i<nx;i++) {
-				pos[0]=i;
-				pos[1]=j;
-				ra1.setPosition(pos);
-				ra2.setPosition(pos);
-				ra3.setPosition(pos);
-				os.writeFloat(ra1.get().getRealFloat());
-				os.writeFloat(ra2.get().getRealFloat());
-				os.writeFloat(ra3.get().getRealFloat());
+		if (format_text) {
+			os.writeBytes("# Begin: data text\n");
+			final long[] pos = new long[x.numDimensions()];
+			final long nx=x.dimension(0);
+			final long ny=x.dimension(1);
+			log.info("Size is "+nx+" "+ny);
+			for(long j=ny;j>0;j--) {
+				for (long i=0;i<nx;i++) {
+					pos[0]=i;
+					pos[1]=j-1;
+					ra1.setPosition(pos);
+					ra2.setPosition(pos);
+					ra3.setPosition(pos);
+					os.writeBytes(Float.toString(ra1.get().getRealFloat())+" ");
+					os.writeBytes(Float.toString(ra2.get().getRealFloat())+" ");
+					os.writeBytes(Float.toString(ra3.get().getRealFloat())+" ");
+				}
 			}
+			os.writeBytes("\n");
+			os.writeBytes("# End: data text\n");
+			
+		} else if (format_binary8) {
+			os.writeBytes("# Begin: data binary 8\n");
+			os.writeDouble(123456789012345.0);
+			final long[] pos = new long[x.numDimensions()];
+			final long nx=x.dimension(0);
+			final long ny=x.dimension(1);
+			log.info("Size is "+nx+" "+ny);
+			for(long j=ny;j>0;j--) {
+				for (long i=0;i<nx;i++) {
+					pos[0]=i;
+					pos[1]=j-1;
+					ra1.setPosition(pos);
+					ra2.setPosition(pos);
+					ra3.setPosition(pos);
+					os.writeDouble(ra1.get().getRealDouble());
+					os.writeDouble(ra2.get().getRealDouble());
+					os.writeDouble(ra3.get().getRealDouble());
+				}
+			}
+			os.writeBytes("\n");
+			os.writeBytes("# End: data binary 8\n");
+		} else {
+			os.writeBytes("# Begin: data binary 4\n");
+			os.writeFloat(1234567.0f);
+			final long[] pos = new long[x.numDimensions()];
+			final long nx=x.dimension(0);
+			final long ny=x.dimension(1);
+			log.info("Size is "+nx+" "+ny);
+			for(long j=ny;j>0;j--) {
+				for (long i=0;i<nx;i++) {
+					pos[0]=i;
+					pos[1]=j-1;
+					ra1.setPosition(pos);
+					ra2.setPosition(pos);
+					ra3.setPosition(pos);
+					os.writeFloat(ra1.get().getRealFloat());
+					os.writeFloat(ra2.get().getRealFloat());
+					os.writeFloat(ra3.get().getRealFloat());
+				}
+			}
+			os.writeBytes("\n");
+			os.writeBytes("# End: data binary 4\n");
 		}
-		os.writeBytes("\n");
+
 	}
 	
 }
