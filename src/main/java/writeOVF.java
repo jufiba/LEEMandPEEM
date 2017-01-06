@@ -156,8 +156,8 @@ public class writeOVF implements Command, Previewable {
 		os.writeBytes("# xstepsize: "+xstepsize+"\n");
 		os.writeBytes("# ystepsize: "+ystepsize+"\n");
 		os.writeBytes("# zstepsize: "+zstepsize+"\n");
-		os.writeBytes("# xnodes:"+nx+"\n");
-		os.writeBytes("# ynodes:"+ny+"\n");
+		os.writeBytes("# xnodes: "+nx+"\n");
+		os.writeBytes("# ynodes: "+ny+"\n");
 		os.writeBytes("# znodes: 1\n");
 		os.writeBytes("# xmin: 0\n");
 		os.writeBytes("# ymin: 0\n");
