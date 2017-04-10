@@ -10,6 +10,7 @@
 
 import net.imagej.Dataset;
 import net.imagej.DatasetService;
+import net.imagej.axis.Axes;
 import net.imagej.axis.AxisType;
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccess;
@@ -25,6 +26,8 @@ import org.scijava.command.Previewable;
 import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
+
+//import ij.plugin.CompositeConverter;
 
 //import io.scif.services.DatasetIOService;
 
@@ -83,13 +86,7 @@ public class getXYZmag implements Command, Previewable {
 	private Double theta3;
 
 	@Parameter(label = "Result X", type = ItemIO.OUTPUT)
-	private Dataset result_x;
-
-	@Parameter(label = "Result Y", type = ItemIO.OUTPUT)
-	private Dataset result_y;
-
-	@Parameter(label = "Result Z", type = ItemIO.OUTPUT)
-	private Dataset result_z;
+	private Dataset result;
 
 
 	//public static void main(final String... args) throws Exception {
@@ -123,10 +120,23 @@ public class getXYZmag implements Command, Previewable {
 			return;
 		}
 		
-		result_x= getComponent(d1,d2,d3,b1.getX(),b2.getX(),b3.getX(),"X-axis");
-		result_y= getComponent(d1,d2,d3,b1.getY(),b2.getY(),b3.getY(),"Y-axis");
-		result_z= getComponent(d1,d2,d3,b1.getZ(),b2.getZ(),b3.getZ(),"Z-axis");
+		final int dimCount = d1.numDimensions()+1;
+		final long[] dims = new long[dimCount];
+		final AxisType[] axes = new AxisType[dimCount];
+		for (int i = 0; i < dimCount-1; i++) {
+			dims[i] = d1.dimension(i);
+			axes[i] = d1.axis(i).type();
+		}
+		axes[dimCount-1]= Axes.CHANNEL;
+		dims[dimCount-1]= 3; // We will end with three channel components, corresponding to the X, Y and Z vector components
+		
+		result=datasetService.create(new FloatType(), dims, "reconstructedXYZ", axes);
+		
+		getComponent(result,0,d1,d2,d3,b1.getX(),b2.getX(),b3.getX(),"X-axis");
+		getComponent(result,1,d1,d2,d3,b1.getY(),b2.getY(),b3.getY(),"Y-axis");
+		getComponent(result,2,d1,d2,d3,b1.getZ(),b2.getZ(),b3.getZ(),"Z-axis");
 	
+		//ij.plugin.CompositeConverter(result.getImgPlus());
 	}
 
 	@Override
@@ -152,50 +162,30 @@ public class getXYZmag implements Command, Previewable {
 	 * @return
 	 */
 	@SuppressWarnings({ "rawtypes" })
-	private Dataset getComponent(final Dataset d1, final Dataset d2, final Dataset d3, 
+	void getComponent(Dataset result, long coor, final Dataset d1, final Dataset d2, final Dataset d3, 
 			final Double f1, final Double f2, final Double f3, String name) {
-		final Dataset result = create(d1, d2, new FloatType(), name);
 
-		// sum data into result dataset
 		final RandomAccess<? extends RealType> ra1 = d1.getImgPlus().randomAccess();
 		final RandomAccess<? extends RealType> ra2 = d2.getImgPlus().randomAccess();
 		final RandomAccess<? extends RealType> ra3 = d3.getImgPlus().randomAccess();
-		final Cursor<? extends RealType> cursor = result.getImgPlus()
-			.localizingCursor();
-		final long[] pos1 = new long[d1.numDimensions()];
-		final long[] pos2 = new long[d2.numDimensions()];
-		final long[] pos3 = new long[d3.numDimensions()];
+		final RandomAccess<? extends RealType> res = result.getImgPlus().randomAccess();
+		final Cursor<? extends RealType> cursor = d1.getImgPlus()
+				.localizingCursor();
+		final long[] pos_res = new long[result.numDimensions()];
+		final long[] pos = new long[d1.numDimensions()];
 		while (cursor.hasNext()) {
 			cursor.fwd();
-			cursor.localize(pos1);
-			cursor.localize(pos2);
-			cursor.localize(pos3);
-			ra1.setPosition(pos1);
-			ra2.setPosition(pos2);
-			ra3.setPosition(pos3);
+			cursor.localize(pos);
+			for (int i=0;i<result.numDimensions()-1;i++) {
+				pos_res[i]=pos[i];
+			}
+			pos_res[result.numDimensions()-1]=coor;
+			ra1.setPosition(pos);
+			ra2.setPosition(pos);
+			ra3.setPosition(pos);
+			res.setPosition(pos_res);
 			final double sum = f1*ra1.get().getRealDouble() + f2*ra2.get().getRealDouble()+f3*ra3.get().getRealDouble();
-			cursor.get().setReal(sum);
+			res.get().setReal(sum);
 		}
-
-		return result;
 	}
-
-
-	/**
-	 * Creates a dataset with bounds constrained by the minimum of the two input
-	 * datasets.
-	 */
-	private <T extends RealType<T> & NativeType<T>> Dataset create(
-		final Dataset d1, final Dataset d2, final T type, String name)
-	{
-		final int dimCount = Math.min(d1.numDimensions(), d2.numDimensions());
-		final long[] dims = new long[dimCount];
-		final AxisType[] axes = new AxisType[dimCount];
-		for (int i = 0; i < dimCount; i++) {
-			dims[i] = Math.min(d1.dimension(i), d2.dimension(i));
-			axes[i] = d1.numDimensions() > i ? d1.axis(i).type() : d2.axis(i).type();
-		}
-		return datasetService.create(type, dims, name, axes);
 	}
-
-}
