@@ -76,19 +76,9 @@ public class readOVF implements Command, Previewable {
 
 	@Parameter(label = "OVF file to read")
 	private File file;
-	
-	@Parameter(label = "slice across thickness")
-	private int slice;
-	
+
 	@Parameter(label = "X component image", type = ItemIO.OUTPUT)
-	private Dataset Dx;
-	
-	@Parameter(label = "Y component image", type = ItemIO.OUTPUT)
-	private Dataset Dy;
-	
-	@Parameter(label = "Z component image", type = ItemIO.OUTPUT)
-	private Dataset Dz;
-	
+	private Dataset D;
 
 	public static void main(final String... args) throws Exception {
 		// create the ImageJ application context with all available services
@@ -99,30 +89,23 @@ public class readOVF implements Command, Previewable {
 
 	@Override
 	public void run() {
-		double[] steps= {0.1,0.1};
-		long[] dims_data = {256,256,10};
-		long[] dims_image = {256,256};
+		double[] steps= {1.0,1.0,1.0};
+		long[] dims = {256,256,3,3};
 		String[] info={"test","unknow"};
 		try {
 			DataInputStream is= new DataInputStream(new BufferedInputStream(new FileInputStream(file.getAbsolutePath())));
 			// DataOutputStream is big endian, as is OVF 1.0
-			readHeader(is,dims_data,steps,info);
-			log.info("size is "+dims_data[0]+" "+dims_data[1]+" "+dims_data[2]);
-			dims_image[0]=dims_data[0];
-			dims_image[1]=dims_data[1];
-	        final AxisType[] axis = {Axes.X, Axes.Y};
-			Dx=datasetService.create(new FloatType(), dims_image, "X", axis);
-			Dy=datasetService.create(new FloatType(), dims_image, "Y", axis);
-			Dz=datasetService.create(new FloatType(), dims_image, "Z", axis);
+			readHeader(is,dims,steps,info);
+	        final AxisType[] axis = {Axes.X, Axes.Y, Axes.Z, Axes.CHANNEL};
+	        info[0]=file.getName();
+			D=datasetService.create(new FloatType(), dims, info[0], axis);
 			final LinearAxis xAxes= new DefaultLinearAxis(Axes.X, info[1], steps[0]);
 			final LinearAxis yAxes =new DefaultLinearAxis(Axes.Y, info[1], steps[1]);
-			//xAxis.setScale(steps[0]);
-			//yAxis.setScale(steps[1]);
-			final CalibratedAxis[] caxis = { xAxes, yAxes };
-			Dx.setAxes(caxis);
-			Dy.setAxes(caxis);
-			Dz.setAxes(caxis);
-			readMeat(is,Dx,Dy,Dz,dims_data,slice);
+			final LinearAxis zAxes =new DefaultLinearAxis(Axes.Z, info[1], steps[2]);
+			final LinearAxis cAxes =new DefaultLinearAxis(Axes.CHANNEL, "vector", 3.0);
+			final CalibratedAxis[] caxis = { xAxes, yAxes, zAxes, cAxes};
+			D.setAxes(caxis);
+			readMeat(is,D,dims);
 			is.close();
 			
 		} catch (IOException e) {
@@ -145,42 +128,49 @@ public class readOVF implements Command, Previewable {
 	protected void readHeader(DataInputStream is, long[] dims, double[] step, String[] info) throws IOException {
 		String item;
 		String definition=is.readLine();
-		if (definition.contains("OOMMF: rectangular mesh v1.0")) 
+		if (definition.toLowerCase().contains("oommf: rectangular mesh v1.0")) 
 		{
 			log.info("Good, rectangular grid v1.0");
 			item=is.readLine();
 			while (!item.contains("End: Header")) {
-				if (item.contains("xnodes")) {
+				if (item.toLowerCase().contains("xnodes")) {
 					dims[0]=Integer.parseInt((item.split(" "))[2]);
 					log.info("found xnodes: "+dims[0]);
-				} else if (item.contains("ynodes")) {
+				} else if (item.toLowerCase().contains("ynodes")) {
 					dims[1]=Integer.parseInt((item.split(" "))[2]);
 					log.info("found ynodes: "+dims[1]);
-				} else if (item.contains("znodes")) {
+				} else if (item.toLowerCase().contains("znodes")) {
 					dims[2]=Integer.parseInt((item.split(" "))[2]);
 					log.info("found znodes: "+dims[2]);
-				} else if (item.contains("xstepsize")) {
+				} else if (item.toLowerCase().contains("xstepsize")) {
 					step[0]=Double.parseDouble((item.split(" "))[2]);
 					log.info("found xs: "+step[0]);
-				} else if (item.contains("ystepsize")) {
+				} else if (item.toLowerCase().contains("ystepsize")) {
 					step[1]=Double.parseDouble((item.split(" "))[2]);
 					log.info("found ys: "+step[1]);
-				} else if (item.contains("meshtype: rectangular")) {
+				} else if (item.toLowerCase().contains("zstepsize")) {
+					step[2]=Double.parseDouble((item.split(" "))[2]);
+					log.info("found zs: "+step[2]);
+				} 
+				else if (item.toLowerCase().contains("meshtype: rectangular")) {
 					log.info("good, rectangular meshtype, only one we know");
-				} else if (item.contains("Title:")) {
+				} else if (item.toLowerCase().contains("Title:")) {
 					info[0]=item;
 					log.info("name is: "+info[0]);
-				} else if (item.contains("meshunit:")) {
+				} else if (item.toLowerCase().contains("meshunit:")) {
 					info[1]=item.split(" ")[2];
 					log.info("units: "+info[1]);
 				}
 				item=is.readLine();
 			}
+			dims[3]=3;// Three coordinates for each vector component
+			/** Not really needed, but I prefer nm...
 			if (1E-6>step[0] || step[0]>1E-10 || info[1].equals("m")) {
 				info[1]="nm";
 				step[0]*=1e9;
 				step[1]*=1e9;
-			}
+				step[2]*=1e9;
+			}**/
 		}
 		/* os.writeBytes("# Segment count: 1\n");
 		os.writeBytes("# Begin: segment\n");
@@ -216,7 +206,7 @@ public class readOVF implements Command, Previewable {
 	 * Read image slices from input file. 
 	 * 
 	 */
-	private void readMeat(DataInputStream is, final Dataset Dx, final Dataset Dy, final Dataset Dz, long[] dims_data, int slice) 
+	private void readMeat(DataInputStream is, final Dataset D, long[] dims_data) 
 	throws IOException {
 		
 		String item;
@@ -227,9 +217,7 @@ public class readOVF implements Command, Previewable {
 		double[][][] ovf_y=new double[x][y][z]; 
 		double[][][] ovf_z=new double[x][y][z];
 		
-		final RandomAccess<? extends RealType> ra1 = Dx.getImgPlus().randomAccess();
-		final RandomAccess<? extends RealType> ra2 = Dy.getImgPlus().randomAccess();
-		final RandomAccess<? extends RealType> ra3 = Dz.getImgPlus().randomAccess();
+		final RandomAccess<? extends RealType> ra1 = D.getImgPlus().randomAccess();
 		
 			item=is.readLine();
 			if (item.contains("8"))
@@ -267,17 +255,23 @@ public class readOVF implements Command, Previewable {
 				log.info("Bad, text data, abort");
 			}
 				
-			final long[] pos = new long[2];
+			final long[] pos = new long[4];
 			for (int i=0;i<x;i++) {
 				for (int j=0;j<y;j++) {
+					for (int k=0; k<z; k++) {
 					pos[0]=(long)i;
 					pos[1]=(long)j;
+					pos[2]=(long)k;
+					pos[3]=(long)0;
 					ra1.setPosition(pos);
-					ra2.setPosition(pos);
-					ra3.setPosition(pos);
-					ra1.get().setReal((double)ovf_x[i][j][slice]);
-					ra2.get().setReal((double)ovf_y[i][j][slice]);
-					ra3.get().setReal((double)ovf_z[i][j][slice]);
+					ra1.get().setReal((double)ovf_x[i][j][k]);
+					pos[3]=(long)1;
+					ra1.setPosition(pos);
+					ra1.get().setReal((double)ovf_y[i][j][k]);
+					pos[3]=(long)2;
+					ra1.setPosition(pos);
+					ra1.get().setReal((double)ovf_z[i][j][k]);
+					} 
 				}
 			}
 			/**os.writeDouble(123456789012345.0);
