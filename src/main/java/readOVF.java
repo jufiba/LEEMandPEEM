@@ -37,6 +37,8 @@ import net.imagej.axis.LinearAxis;
 import net.imagej.axis.AxisType;
 import net.imglib2.type.numeric.real.FloatType;
 import net.imglib2.view.Views;
+import net.imglib2.display.projector.composite.CompositeXYProjector;
+
 import org.scijava.command.Command;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
@@ -106,6 +108,13 @@ public class readOVF implements Command, Previewable {
 			final CalibratedAxis[] caxis = { xAxes, yAxes, zAxes, cAxes};
 			D.setAxes(caxis);
 			readMeat(is,D,dims);
+			/*Img<ARGBType> out = opService.create().img(D, new ARGBType());
+			ArrayList<Converter<UnsignedByteType, ARGBType>> converterlistrgba = new ArrayList<>();
+			converterlistrgba.add(new ChannelARGBConverter(Channel.R));
+			converterlistrgba.add(new ChannelARGBConverter(Channel.G));
+			CompositeXYProjector<UnsignedByteType> compositeXYProjector = new CompositeXYProjector<>(in, Views.iterable(out), converterlistrgba, 2);
+			compositeXYProjector.map();*/
+			
 			is.close();
 			
 		} catch (IOException e) {
