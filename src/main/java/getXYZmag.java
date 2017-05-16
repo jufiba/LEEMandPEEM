@@ -12,11 +12,15 @@ import net.imagej.Dataset;
 import net.imagej.DatasetService;
 import net.imagej.axis.Axes;
 import net.imagej.axis.AxisType;
+import net.imagej.ImageJ;
+import net.imagej.ImgPlus;
+
 import net.imglib2.Cursor;
 import net.imglib2.RandomAccess;
 import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.RealType;
 import net.imglib2.type.numeric.real.FloatType;
+import net.imglib2.img.Img;
 
 import org.scijava.ItemIO;
 import org.scijava.ItemVisibility;
@@ -27,7 +31,7 @@ import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
-//import ij.plugin.CompositeConverter;
+import ij.CompositeImage;
 
 //import io.scif.services.DatasetIOService;
 
@@ -136,7 +140,9 @@ public class getXYZmag implements Command, Previewable {
 		getComponent(result,1,d1,d2,d3,b1.getY(),b2.getY(),b3.getY(),"Y-axis");
 		getComponent(result,2,d1,d2,d3,b1.getZ(),b2.getZ(),b3.getZ(),"Z-axis");
 	
-		//ij.plugin.CompositeConverter(result.getImgPlus());
+		ImgPlus img = result.getImgPlus();
+		Img<FloatType> floatImg = ops.convert().float32(img);
+		CompositeImage(result.getImgPlus(),IJ.COMPOSITE);
 	}
 
 	@Override
