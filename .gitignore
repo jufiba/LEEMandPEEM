@@ -1,0 +1,14 @@
+# Build output
+/target/
+/bin/
+
+# Eclipse project files
+.classpath
+.project
+.settings/
+
+# Generated documentation
+/doc/
+
+# macOS metadata
+.DS_Store

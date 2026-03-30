@@ -31,7 +31,7 @@ import org.scijava.log.LogService;
 import org.scijava.plugin.Parameter;
 import org.scijava.plugin.Plugin;
 
-import ij.CompositeImage;
+//import ij.CompositeImage;
 
 //import io.scif.services.DatasetIOService;
 
@@ -140,9 +140,9 @@ public class getXYZmag implements Command, Previewable {
 		getComponent(result,1,d1,d2,d3,b1.getY(),b2.getY(),b3.getY(),"Y-axis");
 		getComponent(result,2,d1,d2,d3,b1.getZ(),b2.getZ(),b3.getZ(),"Z-axis");
 	
-		ImgPlus img = result.getImgPlus();
-		Img<FloatType> floatImg = ops.convert().float32(img);
-		CompositeImage(result.getImgPlus(),IJ.COMPOSITE);
+		//ImgPlus img = result.getImgPlus();
+		//Img<FloatType> floatImg = ops.convert().float32(img);
+		//CompositeImage(result.getImgPlus(),IJ.COMPOSITE);
 	}
 
 	@Override
