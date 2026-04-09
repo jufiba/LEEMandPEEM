@@ -25,7 +25,6 @@ import net.imglib2.RandomAccessibleInterval;
 import net.imglib2.RandomAccess;
 
 import net.imglib2.img.Img;
-import net.imglib2.meta.CalibratedSpace;
 import net.imglib2.type.NativeType;
 import net.imglib2.type.numeric.RealType;
 import net.imglib2.type.numeric.real.FloatType;
