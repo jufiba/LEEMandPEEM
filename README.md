@@ -16,7 +16,29 @@ Metadata stored in the file header (start voltage, temperature, pressure, field 
 
 Opens a folder of `.dat` files as an ImageJ stack. A dialog allows filtering by filename substring and selecting a range and increment (options are remembered between runs). Each slice label contains the metadata extracted from that file's header in `key=value` format, which can be used by **Plot Intensity vs Tag**.
 
-**Companion CSV support:** if the folder contains a CSV file whose name does not include the word `meta`, the plugin reads it and appends its `Energy` and `M4b` columns as additional slice label tags (`Energy (eV)` and `M4b`). This follows the metadata CSV format produced by the PEEM data acquisition system at the [Solaris](https://www.synchrotron.uj.edu.pl) DEMETER beamline. Both comma- and semicolon-delimited files are supported; UTF-8 BOM (added by Excel on Windows) is handled automatically.
+#### Companion CSV support (Solaris DEMETER beamline)
+
+If the folder contains a CSV file whose name does not include the word `meta`, the plugin reads it and merges its per-image metadata into the stack. The rows of the CSV are matched to the `.dat` files by position (both sorted alphabetically), so the first data row corresponds to the first image, and so on.
+
+The following columns are recognised and added as slice label tags:
+
+| CSV column | Slice label tag | Description |
+|------------|-----------------|-------------|
+| `Energy`   | `Energy (eV)`   | Photon energy set point |
+| `M4b`      | `M4b`           | M4 mirror drain current (flux monitor) |
+
+This matches the metadata CSV format produced by the PEEM data acquisition system at the [Solaris](https://www.synchrotron.uj.edu.pl) DEMETER beamline, where each XAS/NEXAFS scan folder contains a CSV file with one row per image alongside columns for photon energy, flux monitors, and other beamline parameters. A typical file looks like:
+
+```
+Energy,ROI1_Intensity,ROI2_Intensity,...,M4b,...
+520.024,34.16,...,5875.16,...
+520.501,34.15,...,5901.09,...
+...
+```
+
+Both comma- and semicolon-delimited files are supported. UTF-8 BOM (added by Excel on Windows) is stripped automatically.
+
+Once loaded, `Energy (eV)` and `M4b` appear in the **Plot Intensity vs Tag** tag dropdowns alongside the metadata embedded in the `.dat` files themselves.
 
 ### Plot Intensity vs Tag
 
@@ -31,6 +53,16 @@ Features:
 - **Multi-ROI plotting** — if the ROI Manager is open, one curve is plotted per ROI with a legend; selected ROIs in the manager are used, otherwise all. Without the ROI Manager the active ROI (or whole frame) is used
 - **Save CSV** — checkbox to export the plot data (X column + one column per ROI) to a CSV file, ready for further analysis in Python or other tools
 - All dialog choices are remembered between runs via `ij.Prefs`
+
+## Typical workflow: XAS/NEXAFS at Solaris DEMETER
+
+1. Open the scan folder with **UView Folder Reader**. If the beamline CSV is present, `Energy (eV)` and `M4b` are automatically added to every slice.
+2. Draw one or more ROIs on the stack (use the ROI Manager for multiple regions).
+3. Run **Plot Intensity vs Tag**:
+   - Set *X tag* to `Energy (eV)`.
+   - Set *Y tag* to `M4b` and *Y formula* to `y / t` to normalise the intensity by the incident flux.
+   - With multiple ROIs open, all curves are overlaid on the same plot with a legend.
+4. Check **Save CSV** to export the normalised spectra for further processing, e.g. with Python/matplotlib.
 
 ## Installation
 
