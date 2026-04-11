@@ -64,6 +64,8 @@ public class plotIntensityVsTag implements Command {
             return;
         }
 
+        tags.add(0, "Frame Number");
+
         final String defaultTag  = tags.get(0);
         final String defaultUnit = unitFromKey(defaultTag);
 
@@ -153,6 +155,7 @@ public class plotIntensityVsTag implements Command {
      * Returns the full key if no parenthesised unit is found.
      */
     private static String unitFromKey(final String key) {
+        if ("Frame Number".equals(key)) return "Frame";
         final int open  = key.lastIndexOf('(');
         final int close = key.lastIndexOf(')');
         if (open >= 0 && close > open)
@@ -163,9 +166,11 @@ public class plotIntensityVsTag implements Command {
     /**
      * Extract the numeric value for searchKey from a slice label,
      * falling back to the slice index on failure.
+     * If tagKey is "Frame Number" the slice index is returned directly.
      */
     private static double extractTagValue(final String label, final String searchKey,
             final int sliceIndex, final LogService log, final String tagKey) {
+        if ("Frame Number".equals(tagKey)) return sliceIndex;
         if (label == null) return sliceIndex;
         final int idx = label.indexOf(searchKey);
         if (idx < 0) return sliceIndex;
