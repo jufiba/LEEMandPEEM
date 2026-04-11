@@ -15,11 +15,14 @@
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.gui.GenericDialog;
 import ij.gui.Plot;
 import ij.measure.Measurements;
 import ij.process.ImageStatistics;
 
-import org.scijava.ItemVisibility;
+import java.util.ArrayList;
+import java.util.List;
+
 import org.scijava.app.StatusService;
 import org.scijava.command.Command;
 import org.scijava.log.LogService;
@@ -36,70 +39,54 @@ public class plotIntensityVsTag implements Command {
     @Parameter
     private StatusService statusService;
 
-    @Parameter(visibility = ItemVisibility.MESSAGE)
-    private final String header =
-        "Plots mean intensity vs. a numeric tag embedded in the slice labels. "
-        + "Draw an ROI first (optional).";
-
-    @Parameter(label = "Image tag key",
-               description = "Tag name exactly as it appears in the slice labels, e.g. \"Start V (V)\"")
-    private String tagKey = "Start V (V)";
-
-    @Parameter(label = "X axis label")
-    private String xLabel = "Start Voltage (V)";
-
-    @Parameter(label = "Y axis label")
-    private String yLabel = "Mean Intensity";
-
-    @Parameter(label = "Plot title")
-    private String plotTitle = "Intensity vs Start Voltage";
-
     @Override
     public void run() {
         final ImagePlus imp = IJ.getImage();
         if (imp == null) {
-            log.error("plotIntensityVsTag: no image is open.");
+            IJ.error("plotIntensityVsTag", "No image is open.");
             return;
         }
         final int n = imp.getStackSize();
         if (n < 2) {
-            log.error("plotIntensityVsTag: a stack with at least 2 slices is required.");
+            IJ.error("plotIntensityVsTag", "A stack with at least 2 slices is required.");
             return;
         }
 
+        final ImageStack stack = imp.getStack();
 
-        final ImageStack stack    = imp.getStack();
-        final String    searchKey = tagKey + "=";
-        final double[]  xValues   = new double[n];
-        final double[]  yValues   = new double[n];
+        // --- parse numeric tags from the first slice label ---
+        final List<String> tags = numericTagsFromLabel(stack.getSliceLabel(1));
+        if (tags.isEmpty()) {
+            IJ.error("plotIntensityVsTag",
+                "No numeric tags found in the slice labels.\n" +
+                "Open the stack with UView Folder Reader to embed metadata.");
+            return;
+        }
 
+        // --- dialog with dropdown of available tags ---
+        final GenericDialog gd = new GenericDialog("Plot Intensity vs Tag");
+        gd.addChoice("Tag", tags.toArray(new String[0]), tags.get(0));
+        gd.addStringField("X axis label", tags.get(0), 28);
+        gd.addStringField("Y axis label", "Mean Intensity", 28);
+        gd.addStringField("Plot title",   "Intensity vs " + tags.get(0), 28);
+        gd.showDialog();
+        if (gd.wasCanceled()) return;
+
+        final String tagKey   = gd.getNextChoice();
+        final String xLabel   = gd.getNextString();
+        final String yLabel   = gd.getNextString();
+        final String plotTitle = gd.getNextString();
+        final String searchKey = tagKey + "=";
+
+        // --- collect data ---
+        final double[] xValues = new double[n];
+        final double[] yValues = new double[n];
         final int savedSlice = imp.getCurrentSlice();
 
         for (int i = 1; i <= n; i++) {
-
-            // --- extract numeric tag value from slice label ---
             final String label = stack.getSliceLabel(i);
-            if (label != null) {
-                final int idx = label.indexOf(searchKey);
-                if (idx >= 0) {
-                    final int start = idx + searchKey.length();
-                    int end = label.indexOf('\n', start);
-                    if (end < 0) end = label.length();
-                    try {
-                        xValues[i - 1] = Double.parseDouble(label.substring(start, end).trim());
-                    } catch (NumberFormatException e) {
-                        log.warn("Slice " + i + ": cannot parse value for key \""
-                                 + tagKey + "\", using slice index as fallback.");
-                        xValues[i - 1] = i;
-                    }
-                } else {
-                    xValues[i - 1] = i; // key not found — fall back to slice number
-                }
-            } else {
-                xValues[i - 1] = i;
-            }
+            xValues[i - 1] = extractTagValue(label, searchKey, i, log, tagKey);
 
-            // --- mean intensity, respecting active ROI ---
             imp.setSliceWithoutUpdate(i);
             imp.getProcessor().setRoi(imp.getRoi());
             final ImageStatistics stats = ImageStatistics.getStatistics(
@@ -109,9 +96,52 @@ public class plotIntensityVsTag implements Command {
             statusService.showProgress(i, n);
         }
 
-        imp.setSlice(savedSlice); // restore original position
+        imp.setSlice(savedSlice);
 
         final Plot plot = new Plot(plotTitle, xLabel, yLabel, xValues, yValues);
         plot.show();
+    }
+
+    /**
+     * Parse all key=value lines from a slice label and return the keys whose
+     * values are numeric (parseable as double).
+     */
+    private static List<String> numericTagsFromLabel(final String label) {
+        final List<String> tags = new ArrayList<>();
+        if (label == null) return tags;
+        for (final String line : label.split("\n")) {
+            final int eq = line.indexOf('=');
+            if (eq <= 0) continue;
+            final String key = line.substring(0, eq).trim();
+            final String val = line.substring(eq + 1).trim();
+            try {
+                Double.parseDouble(val);
+                tags.add(key);
+            } catch (NumberFormatException e) {
+                // skip non-numeric entries (e.g. Date)
+            }
+        }
+        return tags;
+    }
+
+    /**
+     * Extract the numeric value for the given searchKey from a slice label,
+     * falling back to the slice index on failure.
+     */
+    private static double extractTagValue(final String label, final String searchKey,
+            final int sliceIndex, final LogService log, final String tagKey) {
+        if (label == null) return sliceIndex;
+        final int idx = label.indexOf(searchKey);
+        if (idx < 0) return sliceIndex;
+        final int start = idx + searchKey.length();
+        int end = label.indexOf('\n', start);
+        if (end < 0) end = label.length();
+        try {
+            return Double.parseDouble(label.substring(start, end).trim());
+        } catch (NumberFormatException e) {
+            log.warn("Slice " + sliceIndex + ": cannot parse value for key \""
+                     + tagKey + "\", using slice index as fallback.");
+            return sliceIndex;
+        }
     }
 }
