@@ -5,7 +5,7 @@
 Fiji/ImageJ2 plugins for low-energy electron microscopy (LEEM) and photoemission electron microscopy (PEEM), targeting Elmitec instruments running U-view 2002 software.
 
 **GitHub:** https://github.com/Jufiba/LEEMandPEEM  
-**Current version:** 2.0.0  
+**Current version:** 2.1.0  
 **Parent POM:** pom-scijava 34.1.0  
 
 ## Plugins
@@ -22,7 +22,7 @@ mvn clean package
 
 Always use `clean` — stale `.class` files from previous builds will end up in the jar and cause duplicate-class conflicts in the Fiji updater.
 
-The jar goes to `target/LEEMandPEEM-2.0.0.jar`. Install by copying to `<Fiji>/plugins/`.
+The jar goes to `target/LEEMandPEEM-2.1.0.jar`. Install by copying to `<Fiji>/plugins/`.
 
 ## Key technical decisions
 
@@ -50,6 +50,10 @@ Migrated from SCIFIO 0.28 to 0.45 (March 2026). Key API changes:
 ### v1.0.1 (original)
 - OVFFormat, readOVF, writeOVF, getXYZmag, toSpherical, Vector3d included (later moved)
 - Parent: pom-imagej 15.8.0
+
+### v2.1.0 (April 2026)
+- **UView_Folder_Reader**: reads a companion CSV file (same folder, no "meta" in name) and appends `Energy (eV)` and `M4b` columns as slice label tags. CSV format follows the metadata files produced by the PEEM acquisition system at the Solaris DEMETER beamline. Auto-detects comma vs semicolon delimiter; strips UTF-8 BOM for Windows/Excel compatibility. Dialog options (filter, start, count, increment) are persisted via `ij.Prefs`.
+- **plotIntensityVsTag**: independent Y formula field (`y` = mean intensity, `t` = a separately chosen Y tag) for normalization (e.g. `y / t` with M4b). Multi-ROI support via ROI Manager — one labelled curve per ROI, with legend and correct List table columns. X axis label pre-filled from tag name (editable). Plot title set from stack name. All dialog options persisted. Save CSV checkbox exports X + all Y columns to a file.
 
 ### v2.0.0 (April 2026)
 - Restructured: magnetic/OVF plugins moved to jufiba/MagneticHelper

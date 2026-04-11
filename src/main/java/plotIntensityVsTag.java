@@ -16,13 +16,22 @@
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.Prefs;
 import ij.gui.GenericDialog;
 import ij.gui.Plot;
+import ij.gui.Roi;
+import ij.io.SaveDialog;
 import ij.measure.Measurements;
+import ij.plugin.frame.RoiManager;
 import ij.process.ImageStatistics;
 
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.scijava.app.StatusService;
 import org.scijava.command.Command;
@@ -33,6 +42,13 @@ import org.scijava.plugin.Plugin;
 @Plugin(type = Command.class, headless = false,
         menuPath = "Plugins>LEEMandPEEM>Plot Intensity vs Tag")
 public class plotIntensityVsTag implements Command {
+
+    private static final String PREF_X_TAG      = "LEEMandPEEM.plotVsTag.xTag";
+    private static final String PREF_X_FORMULA  = "LEEMandPEEM.plotVsTag.xFormula";
+    private static final String PREF_Y_TAG      = "LEEMandPEEM.plotVsTag.yTag";
+    private static final String PREF_Y_FORMULA  = "LEEMandPEEM.plotVsTag.yFormula";
+    private static final String PREF_Y_LABEL    = "LEEMandPEEM.plotVsTag.yLabel";
+    private static final String PREF_SAVE_CSV   = "LEEMandPEEM.plotVsTag.saveCsv";
 
     @Parameter
     private LogService log;
@@ -69,59 +85,159 @@ public class plotIntensityVsTag implements Command {
         final String defaultTag  = tags.get(0);
         final String defaultUnit = unitFromKey(defaultTag);
 
+        // Y-tag list: "None" + same numeric tags
+        final List<String> yTagOptions = new ArrayList<>();
+        yTagOptions.add("None");
+        yTagOptions.addAll(tags);
+
+        // --- restore last-used values (fall back to defaults if tag no longer exists) ---
+        final String  prevXTag     = pickFromList(tags,       Prefs.get(PREF_X_TAG,     defaultTag), defaultTag);
+        final String  prevXFormula = Prefs.get(PREF_X_FORMULA, "x");
+        final String  prevYTag     = pickFromList(yTagOptions, Prefs.get(PREF_Y_TAG,    "None"),     "None");
+        final String  prevYFormula = Prefs.get(PREF_Y_FORMULA, "y");
+        final String  prevYLabel   = Prefs.get(PREF_Y_LABEL,   "Mean Intensity");
+        final boolean prevSaveCsv  = Prefs.get(PREF_SAVE_CSV,  false);
+
         // --- dialog ---
         final GenericDialog gd = new GenericDialog("Plot Intensity vs Tag");
-        gd.addChoice("Tag", tags.toArray(new String[0]), defaultTag);
-        gd.addStringField("Formula (use x for tag value)", "x", 28);
-        gd.addStringField("X axis label", defaultUnit, 28);
-        gd.addStringField("Y axis label", "Mean Intensity", 28);
-        gd.addStringField("Plot title",   "Intensity vs " + defaultTag, 28);
+        gd.addChoice("X tag",                              tags.toArray(new String[0]), prevXTag);
+        gd.addStringField("X formula (use x for tag value)", prevXFormula, 28);
+        gd.addStringField("X axis label",                  prevXTag, 28);  // pre-filled from tag, editable
+        gd.addChoice("Y tag (for Y formula, use t)",       yTagOptions.toArray(new String[0]), prevYTag);
+        gd.addStringField("Y formula (use y for intensity, t for Y tag)", prevYFormula, 28);
+        gd.addStringField("Y axis label",                  prevYLabel, 28);
+        gd.addCheckbox("Save CSV", prevSaveCsv);
         gd.showDialog();
         if (gd.wasCanceled()) return;
 
-        final String tagKey    = gd.getNextChoice();
-        final String formula   = gd.getNextString().trim();
-        final String xLabel    = gd.getNextString();
-        final String yLabel    = gd.getNextString();
-        final String plotTitle = gd.getNextString();
-        final String searchKey = tagKey + "=";
+        final String  tagKey    = gd.getNextChoice();
+        final String  xFormula  = gd.getNextString().trim();
+        final String  xLabel    = gd.getNextString();
+        final String  yTagKey   = gd.getNextChoice();
+        final String  yFormula  = gd.getNextString().trim();
+        final String  yLabel    = gd.getNextString();
+        final boolean saveCsv   = gd.getNextBoolean();
+        final String  plotTitle = imp.getTitle();
 
-        // validate formula with a dummy value before running
+        // --- persist choices for next run ---
+        Prefs.set(PREF_X_TAG,     tagKey);
+        Prefs.set(PREF_X_FORMULA, xFormula);
+        Prefs.set(PREF_Y_TAG,     yTagKey);
+        Prefs.set(PREF_Y_FORMULA, yFormula);
+        Prefs.set(PREF_Y_LABEL,   yLabel);
+        Prefs.set(PREF_SAVE_CSV,  saveCsv);
+        final String searchKey = tagKey + "=";
+        final boolean hasYTag  = !"None".equals(yTagKey);
+        final String ySearchKey = hasYTag ? yTagKey + "=" : null;
+
+        // validate formulas with dummy values before running
         try {
-            evalFormula(formula, 1.0);
+            evalFormula(xFormula, varsOf("x", 1.0));
         } catch (Exception e) {
-            IJ.error("plotIntensityVsTag", "Invalid formula: " + e.getMessage());
+            IJ.error("plotIntensityVsTag", "Invalid X formula: " + e.getMessage());
+            return;
+        }
+        try {
+            evalFormula(yFormula, varsOf("y", 1.0, "t", 1.0));
+        } catch (Exception e) {
+            IJ.error("plotIntensityVsTag", "Invalid Y formula: " + e.getMessage());
             return;
         }
 
+        // --- collect ROIs to plot ---
+        final List<Roi>    rois     = new ArrayList<>();
+        final List<String> roiNames = new ArrayList<>();
+        final RoiManager rm = RoiManager.getInstance();
+        if (rm != null && rm.getCount() > 0) {
+            int[] selected = rm.getSelectedIndexes();
+            final Roi[] allRois = rm.getRoisAsArray();
+            int[] indices = (selected.length > 0) ? selected
+                    : new int[allRois.length];
+            if (selected.length == 0)
+                for (int k = 0; k < allRois.length; k++) indices[k] = k;
+            for (int idx : indices) {
+                rois.add(allRois[idx]);
+                final String name = allRois[idx].getName();
+                roiNames.add((name != null && !name.isEmpty()) ? name : "ROI " + (idx + 1));
+            }
+        } else {
+            rois.add(imp.getRoi()); // null = whole image
+            roiNames.add("All");
+        }
+
         // --- collect data ---
-        final double[] xValues = new double[n];
-        final double[] yValues = new double[n];
+        final double[]   xValues = new double[n];
+        final double[][] allY    = new double[rois.size()][n];
         final int savedSlice = imp.getCurrentSlice();
 
         for (int i = 1; i <= n; i++) {
             final String label = stack.getSliceLabel(i);
-            final double rawValue = extractTagValue(label, searchKey, i, log, tagKey);
+            final double rawX = extractTagValue(label, searchKey, i, log, tagKey);
             try {
-                xValues[i - 1] = evalFormula(formula, rawValue);
+                xValues[i - 1] = evalFormula(xFormula, varsOf("x", rawX));
             } catch (Exception e) {
-                log.warn("Slice " + i + ": formula evaluation failed, using raw value.");
-                xValues[i - 1] = rawValue;
+                log.warn("Slice " + i + ": X formula evaluation failed, using raw value.");
+                xValues[i - 1] = rawX;
             }
 
-            imp.setSliceWithoutUpdate(i);
-            imp.getProcessor().setRoi(imp.getRoi());
-            final ImageStatistics stats = ImageStatistics.getStatistics(
-                    imp.getProcessor(), Measurements.MEAN, imp.getCalibration());
-            yValues[i - 1] = stats.mean;
+            final double tVal = hasYTag
+                    ? extractTagValue(label, ySearchKey, i, log, yTagKey)
+                    : 0.0;
 
+            imp.setSliceWithoutUpdate(i);
+            for (int r = 0; r < rois.size(); r++) {
+                imp.getProcessor().setRoi(rois.get(r));
+                final ImageStatistics stats = ImageStatistics.getStatistics(
+                        imp.getProcessor(), Measurements.MEAN, imp.getCalibration());
+                try {
+                    allY[r][i - 1] = evalFormula(yFormula,
+                            varsOf("y", stats.mean, "t", tVal));
+                } catch (Exception e) {
+                    log.warn("Slice " + i + " ROI " + r + ": Y formula failed, using mean.");
+                    allY[r][i - 1] = stats.mean;
+                }
+            }
             statusService.showProgress(i, n);
         }
 
         imp.setSlice(savedSlice);
 
-        final Plot plot = new Plot(plotTitle, xLabel, yLabel, xValues, yValues);
+        // --- build plot ---
+        final String[] colors = {"black", "red", "blue", "green", "magenta", "cyan", "orange"};
+        final Plot plot = new Plot(plotTitle, xLabel, yLabel);
+        for (int r = 0; r < rois.size(); r++) {
+            plot.setColor(colors[r % colors.length]);
+            plot.add("line", xValues, allY[r]);
+            plot.setLabel(r, roiNames.get(r));  // used as column heading in List table
+        }
+        if (rois.size() > 1)
+            plot.addLegend(String.join("\n", roiNames));
         plot.show();
+
+        // --- save CSV if requested ---
+        if (saveCsv) {
+            final SaveDialog sd = new SaveDialog("Save plot data as CSV",
+                    plotTitle + "_plot", ".csv");
+            if (sd.getFileName() != null) {
+                final String path = sd.getDirectory() + sd.getFileName();
+                try (BufferedWriter bw = new BufferedWriter(new FileWriter(path))) {
+                    // header
+                    bw.write(xLabel);
+                    for (String name : roiNames) bw.write("," + name);
+                    bw.newLine();
+                    // data rows
+                    for (int i = 0; i < n; i++) {
+                        bw.write(String.valueOf(xValues[i]));
+                        for (int r = 0; r < rois.size(); r++)
+                            bw.write("," + allY[r][i]);
+                        bw.newLine();
+                    }
+                    IJ.log("plotIntensityVsTag: saved CSV to " + path);
+                } catch (IOException e) {
+                    IJ.error("plotIntensityVsTag", "Could not save CSV:\n" + e.getMessage());
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -186,23 +302,37 @@ public class plotIntensityVsTag implements Command {
         }
     }
 
+    /** Return {@code value} if it is present in {@code list}, otherwise {@code fallback}. */
+    private static String pickFromList(List<String> list, String value, String fallback) {
+        return list.contains(value) ? value : fallback;
+    }
+
+    /** Build a variable map from name/value pairs: varsOf("x", 1.0, "y", 2.0, ...). */
+    private static Map<String, Double> varsOf(Object... pairs) {
+        final Map<String, Double> m = new HashMap<>();
+        for (int i = 0; i < pairs.length - 1; i += 2)
+            m.put((String) pairs[i], (Double) pairs[i + 1]);
+        return m;
+    }
+
     /**
-     * Evaluate a simple arithmetic formula with variable x.
+     * Evaluate a simple arithmetic formula with named variables supplied via a map.
      * Supports: +  -  *  /  parentheses  unary minus  numeric literals.
-     * Example: "350 - x", "x * 0.001", "(x + 5) / 2"
+     * Variables can be any identifier (single letter or word) present in the map.
+     * Examples: "350 - x", "y / t", "(y - 100) / t * 1000"
      */
-    static double evalFormula(final String formula, final double x) throws Exception {
-        return new ExprParser(formula.trim(), x).parse();
+    static double evalFormula(final String formula, final Map<String, Double> vars) throws Exception {
+        return new ExprParser(formula.trim(), vars).parse();
     }
 
     private static class ExprParser {
-        private final String expr;
-        private final double x;
+        private final String              expr;
+        private final Map<String, Double> vars;
         private int pos;
 
-        ExprParser(final String expr, final double x) {
+        ExprParser(final String expr, final Map<String, Double> vars) {
             this.expr = expr;
-            this.x    = x;
+            this.vars = vars;
             this.pos  = 0;
         }
 
@@ -256,7 +386,14 @@ public class plotIntensityVsTag implements Command {
             }
             if (c == '-') { pos++; return -parseFactor(); }
             if (c == '+') { pos++; return  parseFactor(); }
-            if (c == 'x') { pos++; return x; }
+            if (Character.isLetter(c)) {
+                final int start = pos;
+                while (pos < expr.length() && Character.isLetterOrDigit(expr.charAt(pos))) pos++;
+                final String name = expr.substring(start, pos);
+                if (!vars.containsKey(name))
+                    throw new Exception("Unknown variable: '" + name + "'");
+                return vars.get(name);
+            }
             if (Character.isDigit(c) || c == '.') {
                 final int start = pos;
                 while (pos < expr.length()) {

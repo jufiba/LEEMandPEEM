@@ -14,19 +14,23 @@ Metadata stored in the file header (start voltage, temperature, pressure, field 
 
 **Plugins > LEEMandPEEM > UView Folder Reader**
 
-Opens a folder of `.dat` files as an ImageJ stack. A dialog allows filtering by filename substring and selecting a range and increment. Each slice label contains the metadata extracted from that file's header in `key=value` format, which can be used by **Plot Intensity vs Tag**.
+Opens a folder of `.dat` files as an ImageJ stack. A dialog allows filtering by filename substring and selecting a range and increment (options are remembered between runs). Each slice label contains the metadata extracted from that file's header in `key=value` format, which can be used by **Plot Intensity vs Tag**.
+
+**Companion CSV support:** if the folder contains a CSV file whose name does not include the word `meta`, the plugin reads it and appends its `Energy` and `M4b` columns as additional slice label tags (`Energy (eV)` and `M4b`). This follows the metadata CSV format produced by the PEEM data acquisition system at the [Solaris](https://www.synchrotron.uj.edu.pl) DEMETER beamline. Both comma- and semicolon-delimited files are supported; UTF-8 BOM (added by Excel on Windows) is handled automatically.
 
 ### Plot Intensity vs Tag
 
 **Plugins > LEEMandPEEM > Plot Intensity vs Tag**
 
-Plots the mean intensity of each slice in a stack against a metadata value embedded in the slice labels. Typical use: plot intensity vs. start voltage to obtain an IV curve.
+Plots the mean intensity of each slice in a stack against a metadata value embedded in the slice labels. Typical use: plot intensity vs. start voltage (IV curve) or photon energy (XAS/NEXAFS spectrum).
 
 Features:
-- **Tag dropdown** — lists all numeric metadata fields found in the slice labels; includes *Frame Number* as a fallback
-- **Formula** — optional arithmetic expression applied to the tag values before plotting, with `x` as the variable (e.g. `350 - x`, `x * 0.001`, `(x - 5) / 2`)
-- **X axis label** — pre-filled with the unit extracted from the tag name (editable)
-- Respects an active ROI; if none is drawn the whole frame is used
+- **X tag dropdown** — lists all numeric metadata fields found in the slice labels; includes *Frame Number* as a fallback. X axis label is pre-filled from the tag name (editable, e.g. rename to *Binding Energy (eV)* for XPS)
+- **X formula** — optional expression applied to the tag values before plotting (`x` = tag value; e.g. `350 - x`, `x * 0.001`)
+- **Y tag + Y formula** — optional second tag and formula for transforming the intensity (`y` = mean intensity, `t` = Y tag value). Typical use: `y / t` with *M4b* as the Y tag to normalise by beamline flux
+- **Multi-ROI plotting** — if the ROI Manager is open, one curve is plotted per ROI with a legend; selected ROIs in the manager are used, otherwise all. Without the ROI Manager the active ROI (or whole frame) is used
+- **Save CSV** — checkbox to export the plot data (X column + one column per ROI) to a CSV file, ready for further analysis in Python or other tools
+- All dialog choices are remembered between runs via `ij.Prefs`
 
 ## Installation
 
