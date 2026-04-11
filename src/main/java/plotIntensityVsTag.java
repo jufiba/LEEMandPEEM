@@ -8,7 +8,8 @@
  *
  * Plots the mean intensity of each slice in a stack against a numeric value
  * extracted from the slice label (e.g. "Start V (V)=42.0" written by the
- * Uview reader plugin).  If an ROI is active it is respected; otherwise the
+ * Uview reader plugin).  An optional formula can be applied to the tag values
+ * (e.g. "350 - x").  If an ROI is active it is respected; otherwise the
  * whole frame is used.
  */
 
@@ -63,20 +64,33 @@ public class plotIntensityVsTag implements Command {
             return;
         }
 
-        // --- dialog with dropdown of available tags ---
+        final String defaultTag  = tags.get(0);
+        final String defaultUnit = unitFromKey(defaultTag);
+
+        // --- dialog ---
         final GenericDialog gd = new GenericDialog("Plot Intensity vs Tag");
-        gd.addChoice("Tag", tags.toArray(new String[0]), tags.get(0));
-        gd.addStringField("X axis label", tags.get(0), 28);
+        gd.addChoice("Tag", tags.toArray(new String[0]), defaultTag);
+        gd.addStringField("Formula (use x for tag value)", "x", 28);
+        gd.addStringField("X axis label", defaultUnit, 28);
         gd.addStringField("Y axis label", "Mean Intensity", 28);
-        gd.addStringField("Plot title",   "Intensity vs " + tags.get(0), 28);
+        gd.addStringField("Plot title",   "Intensity vs " + defaultTag, 28);
         gd.showDialog();
         if (gd.wasCanceled()) return;
 
-        final String tagKey   = gd.getNextChoice();
-        final String xLabel   = gd.getNextString();
-        final String yLabel   = gd.getNextString();
+        final String tagKey    = gd.getNextChoice();
+        final String formula   = gd.getNextString().trim();
+        final String xLabel    = gd.getNextString();
+        final String yLabel    = gd.getNextString();
         final String plotTitle = gd.getNextString();
         final String searchKey = tagKey + "=";
+
+        // validate formula with a dummy value before running
+        try {
+            evalFormula(formula, 1.0);
+        } catch (Exception e) {
+            IJ.error("plotIntensityVsTag", "Invalid formula: " + e.getMessage());
+            return;
+        }
 
         // --- collect data ---
         final double[] xValues = new double[n];
@@ -85,7 +99,13 @@ public class plotIntensityVsTag implements Command {
 
         for (int i = 1; i <= n; i++) {
             final String label = stack.getSliceLabel(i);
-            xValues[i - 1] = extractTagValue(label, searchKey, i, log, tagKey);
+            final double rawValue = extractTagValue(label, searchKey, i, log, tagKey);
+            try {
+                xValues[i - 1] = evalFormula(formula, rawValue);
+            } catch (Exception e) {
+                log.warn("Slice " + i + ": formula evaluation failed, using raw value.");
+                xValues[i - 1] = rawValue;
+            }
 
             imp.setSliceWithoutUpdate(i);
             imp.getProcessor().setRoi(imp.getRoi());
@@ -101,6 +121,10 @@ public class plotIntensityVsTag implements Command {
         final Plot plot = new Plot(plotTitle, xLabel, yLabel, xValues, yValues);
         plot.show();
     }
+
+    // -------------------------------------------------------------------------
+    // Helpers
+    // -------------------------------------------------------------------------
 
     /**
      * Parse all key=value lines from a slice label and return the keys whose
@@ -125,7 +149,19 @@ public class plotIntensityVsTag implements Command {
     }
 
     /**
-     * Extract the numeric value for the given searchKey from a slice label,
+     * Extract the unit string from a tag key of the form "Name (unit)".
+     * Returns the full key if no parenthesised unit is found.
+     */
+    private static String unitFromKey(final String key) {
+        final int open  = key.lastIndexOf('(');
+        final int close = key.lastIndexOf(')');
+        if (open >= 0 && close > open)
+            return key.substring(open + 1, close);
+        return key;
+    }
+
+    /**
+     * Extract the numeric value for searchKey from a slice label,
      * falling back to the slice index on failure.
      */
     private static double extractTagValue(final String label, final String searchKey,
@@ -142,6 +178,99 @@ public class plotIntensityVsTag implements Command {
             log.warn("Slice " + sliceIndex + ": cannot parse value for key \""
                      + tagKey + "\", using slice index as fallback.");
             return sliceIndex;
+        }
+    }
+
+    /**
+     * Evaluate a simple arithmetic formula with variable x.
+     * Supports: +  -  *  /  parentheses  unary minus  numeric literals.
+     * Example: "350 - x", "x * 0.001", "(x + 5) / 2"
+     */
+    static double evalFormula(final String formula, final double x) throws Exception {
+        return new ExprParser(formula.trim(), x).parse();
+    }
+
+    private static class ExprParser {
+        private final String expr;
+        private final double x;
+        private int pos;
+
+        ExprParser(final String expr, final double x) {
+            this.expr = expr;
+            this.x    = x;
+            this.pos  = 0;
+        }
+
+        double parse() throws Exception {
+            final double result = parseExpr();
+            skipSpaces();
+            if (pos < expr.length())
+                throw new Exception("Unexpected character at position " + pos
+                        + ": '" + expr.charAt(pos) + "'");
+            return result;
+        }
+
+        private double parseExpr() throws Exception {
+            double result = parseTerm();
+            while (true) {
+                skipSpaces();
+                if (pos >= expr.length()) break;
+                final char c = expr.charAt(pos);
+                if      (c == '+') { pos++; result += parseTerm(); }
+                else if (c == '-') { pos++; result -= parseTerm(); }
+                else break;
+            }
+            return result;
+        }
+
+        private double parseTerm() throws Exception {
+            double result = parseFactor();
+            while (true) {
+                skipSpaces();
+                if (pos >= expr.length()) break;
+                final char c = expr.charAt(pos);
+                if      (c == '*') { pos++; result *= parseFactor(); }
+                else if (c == '/') { pos++; result /= parseFactor(); }
+                else break;
+            }
+            return result;
+        }
+
+        private double parseFactor() throws Exception {
+            skipSpaces();
+            if (pos >= expr.length()) throw new Exception("Unexpected end of expression");
+            final char c = expr.charAt(pos);
+            if (c == '(') {
+                pos++;
+                final double result = parseExpr();
+                skipSpaces();
+                if (pos >= expr.length() || expr.charAt(pos) != ')')
+                    throw new Exception("Expected closing parenthesis");
+                pos++;
+                return result;
+            }
+            if (c == '-') { pos++; return -parseFactor(); }
+            if (c == '+') { pos++; return  parseFactor(); }
+            if (c == 'x') { pos++; return x; }
+            if (Character.isDigit(c) || c == '.') {
+                final int start = pos;
+                while (pos < expr.length()) {
+                    final char d = expr.charAt(pos);
+                    if (Character.isDigit(d) || d == '.') { pos++; continue; }
+                    if ((d == 'e' || d == 'E') && pos > start) { pos++; continue; }
+                    if ((d == '+' || d == '-') && pos > start &&
+                            (expr.charAt(pos - 1) == 'e' || expr.charAt(pos - 1) == 'E')) {
+                        pos++; continue;
+                    }
+                    break;
+                }
+                return Double.parseDouble(expr.substring(start, pos));
+            }
+            throw new Exception("Unexpected character: '" + c + "'");
+        }
+
+        private void skipSpaces() {
+            while (pos < expr.length() && expr.charAt(pos) == ' ') pos++;
         }
     }
 }
