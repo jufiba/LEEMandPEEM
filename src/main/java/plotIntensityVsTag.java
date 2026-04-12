@@ -185,10 +185,11 @@ public class plotIntensityVsTag implements Command {
                     : 0.0;
 
             imp.setSliceWithoutUpdate(i);
+            final ij.process.ImageProcessor ip = imp.getProcessor();
             for (int r = 0; r < rois.size(); r++) {
-                imp.getProcessor().setRoi(rois.get(r));
+                ip.setRoi(rois.get(r));
                 final ImageStatistics stats = ImageStatistics.getStatistics(
-                        imp.getProcessor(), Measurements.MEAN, imp.getCalibration());
+                        ip, Measurements.MEAN, imp.getCalibration());
                 try {
                     allY[r][i - 1] = evalFormula(yFormula,
                             varsOf("y", stats.mean, "t", tVal));
@@ -208,7 +209,7 @@ public class plotIntensityVsTag implements Command {
         for (int r = 0; r < rois.size(); r++) {
             plot.setColor(colors[r % colors.length]);
             plot.add("line", xValues, allY[r]);
-            plot.setLabel(r, roiNames.get(r));  // used as column heading in List table
+            plot.setPlotObjectLabel(r, roiNames.get(r));
         }
         if (rois.size() > 1)
             plot.addLegend(String.join("\n", roiNames));
@@ -284,7 +285,7 @@ public class plotIntensityVsTag implements Command {
      * falling back to the slice index on failure.
      * If tagKey is "Frame Number" the slice index is returned directly.
      */
-    private static double extractTagValue(final String label, final String searchKey,
+    static double extractTagValue(final String label, final String searchKey,
             final int sliceIndex, final LogService log, final String tagKey) {
         if ("Frame Number".equals(tagKey)) return sliceIndex;
         if (label == null) return sliceIndex;
@@ -308,7 +309,7 @@ public class plotIntensityVsTag implements Command {
     }
 
     /** Build a variable map from name/value pairs: varsOf("x", 1.0, "y", 2.0, ...). */
-    private static Map<String, Double> varsOf(Object... pairs) {
+    static Map<String, Double> varsOf(Object... pairs) {
         final Map<String, Double> m = new HashMap<>();
         for (int i = 0; i < pairs.length - 1; i += 2)
             m.put((String) pairs[i], (Double) pairs[i + 1]);

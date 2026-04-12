@@ -54,6 +54,24 @@ Features:
 - **Save CSV** — checkbox to export the plot data (X column + one column per ROI) to a CSV file, ready for further analysis in Python or other tools
 - All dialog choices are remembered between runs via `ij.Prefs`
 
+### Process Spectrum
+
+**Plugins > LEEMandPEEM > Process Spectrum**
+
+Post-processes an active plot window produced by **Plot Intensity vs Tag**. Operations applied in order:
+
+1. **Pre-edge subtraction** — subtracts the average intensity around a chosen energy
+2. **Post-edge normalisation** — divides by the average intensity around a second chosen energy
+3. **Difference** — curve 1 minus curve 2 (available when the plot has two or more curves)
+
+Each energy value is averaged over the five nearest points for robustness against noise. The processed curves are shown in a new plot window. All settings are remembered between runs.
+
+### Quick Normalize
+
+**Plugins > LEEMandPEEM > Quick Normalize**
+
+One-shot beamtime command that chains **Plot Intensity vs Tag** and **Process Spectrum** using their last-used settings, with no dialogs. Configure both plugins once on a representative dataset, then run Quick Normalize on every subsequent dataset for an instant normalised spectrum. Results are logged to the Fiji log window.
+
 ## Typical workflow: XAS/NEXAFS at Solaris DEMETER
 
 1. Open the scan folder with **UView Folder Reader**. If the beamline CSV is present, `Energy (eV)` and `M4b` are automatically added to every slice.
@@ -62,7 +80,12 @@ Features:
    - Set *X tag* to `Energy (eV)`.
    - Set *Y tag* to `M4b` and *Y formula* to `y / t` to normalise the intensity by the incident flux.
    - With multiple ROIs open, all curves are overlaid on the same plot with a legend.
-4. Check **Save CSV** to export the normalised spectra for further processing, e.g. with Python/matplotlib.
+4. Run **Process Spectrum** on the resulting plot:
+   - Set a pre-edge energy (flat region before the absorption edge) and a post-edge energy (region above the edge).
+   - Enable *Pre-edge subtraction* and *Post-edge normalisation* to obtain a normalised NEXAFS spectrum (0 before edge, 1 after edge).
+   - Optionally enable *Difference* to compute the XMCD signal (two-ROI or two-curve plots).
+5. For subsequent datasets at the same beamline, run **Quick Normalize** directly — it reuses the tag, formula, and energy settings from the previous run with no dialogs.
+6. Check **Save CSV** in Plot Intensity vs Tag to export raw curves for further processing, e.g. with Python/matplotlib.
 
 ## Installation
 

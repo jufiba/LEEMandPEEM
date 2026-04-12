@@ -14,7 +14,7 @@
 
 	<groupId>imagej-leemandpeem</groupId>
 	<artifactId>LEEMandPEEM</artifactId>
-	<version>2.1.0</version>
+	<version>2.2.0</version>
 
 	<name>Various LEEM&amp;PEEM plugins</name>
 	<description>Fiji/ImageJ2 plugins for low-energy electron microscopy and x-ray photoemission microscopy: UView .dat file reader (SCIFIO), fast folder reader, and intensity-vs-tag plotting.</description>
