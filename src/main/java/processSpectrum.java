@@ -22,9 +22,13 @@ import ij.WindowManager;
 import ij.gui.GenericDialog;
 import ij.gui.Plot;
 import ij.gui.PlotWindow;
+import ij.io.SaveDialog;
 import ij.measure.ResultsTable;
 
 import java.awt.Window;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -42,6 +46,7 @@ public class processSpectrum implements Command {
     private static final String PREF_SUBTRACT   = "LEEMandPEEM.processSpectrum.subtract";
     private static final String PREF_NORMALIZE  = "LEEMandPEEM.processSpectrum.normalize";
     private static final String PREF_DIFFERENCE = "LEEMandPEEM.processSpectrum.difference";
+    private static final String PREF_SAVE_CSV   = "LEEMandPEEM.processSpectrum.saveCsv";
 
     @Parameter
     private LogService log;
@@ -65,6 +70,7 @@ public class processSpectrum implements Command {
         }
 
         // --- parse columns ---
+        // headings[0] = X axis column; headings[1..] = Y columns (may be generic "Y0", "Y1")
         final String[] headings = rt.getHeadings();
         if (headings.length < 2) {
             IJ.error("Process Spectrum",
@@ -72,20 +78,25 @@ public class processSpectrum implements Command {
             return;
         }
 
-        final String   xHeading  = headings[0];
-        final int      nCurves   = headings.length - 1;
-        final String[] curveNames = new String[nCurves];
-        for (int c = 0; c < nCurves; c++) curveNames[c] = headings[c + 1];
+        final String   xHeading    = headings[0];
+        final int      nCurves     = headings.length - 1;
 
+        // Fetch Y data using the table's own column names
         final double[] xValues = getColumn(rt, xHeading);
         final double[][] yValues = new double[nCurves][];
         for (int c = 0; c < nCurves; c++)
-            yValues[c] = getColumn(rt, curveNames[c]);
+            yValues[c] = getColumn(rt, headings[c + 1]);
+
+        // Get display names from plot object labels (set by setPlotObjectLabel in plotIntensityVsTag)
+        // Fall back to the table column name only if the label is absent
+        final String[] curveNames = new String[nCurves];
+        for (int c = 0; c < nCurves; c++) {
+            final String label = plot.getPlotObjectLabel(c);
+            curveNames[c] = (label != null && !label.isEmpty()) ? label : headings[c + 1];
+        }
 
         final double xFirst = xValues[0];
         final double xLast  = xValues[xValues.length - 1];
-        final double xMin   = Math.min(xFirst, xLast);
-        final double xMax   = Math.max(xFirst, xLast);
 
         // --- restore previous settings (default to X value of 5th / 5th-from-last point) ---
         final double  prevPreEdge   = Prefs.get(PREF_PRE_EDGE,
@@ -95,19 +106,21 @@ public class processSpectrum implements Command {
         final boolean prevSubtract  = Prefs.get(PREF_SUBTRACT,   true);
         final boolean prevNormalize = Prefs.get(PREF_NORMALIZE,  true);
         final boolean prevDiff      = Prefs.get(PREF_DIFFERENCE, false);
+        final boolean prevSaveCsv   = Prefs.get(PREF_SAVE_CSV,   false);
 
         // --- dialog ---
         final GenericDialog gd = new GenericDialog("Process Spectrum");
         gd.addMessage("Plot:   " + pw.getTitle());
         gd.addMessage("Curves: " + String.join(", ", curveNames)
                 + "    X range: " + String.format("%.3g", xFirst)
-                + " – " + String.format("%.3g", xLast));
+                + " \u2013 " + String.format("%.3g", xLast));
         gd.addCheckbox("Pre-edge subtraction",      prevSubtract);
         gd.addNumericField("  Pre-edge energy",     prevPreEdge,  3, 10, "");
         gd.addCheckbox("Post-edge normalisation",   prevNormalize);
         gd.addNumericField("  Post-edge energy",    prevPostEdge, 3, 10, "");
         if (nCurves >= 2)
             gd.addCheckbox("Show difference (curve 1 \u2212 curve 2)", prevDiff);
+        gd.addCheckbox("Save CSV", prevSaveCsv);
         gd.showDialog();
         if (gd.wasCanceled()) return;
 
@@ -116,11 +129,13 @@ public class processSpectrum implements Command {
         final boolean doNormalize = gd.getNextBoolean();
         final double  postEdge    = gd.getNextNumber();
         final boolean doDiff      = (nCurves >= 2) && gd.getNextBoolean();
+        final boolean saveCsv     = gd.getNextBoolean();
 
         Prefs.set(PREF_PRE_EDGE,   preEdge);
         Prefs.set(PREF_POST_EDGE,  postEdge);
         Prefs.set(PREF_SUBTRACT,   doSubtract);
         Prefs.set(PREF_NORMALIZE,  doNormalize);
+        Prefs.set(PREF_SAVE_CSV,   saveCsv);
         if (nCurves >= 2) Prefs.set(PREF_DIFFERENCE, doDiff);
 
         // --- apply operations (average over 5 nearest points for robustness) ---
@@ -134,7 +149,7 @@ public class processSpectrum implements Command {
             if (norm == 0.0) {
                 log.warn("Curve '" + curveNames[c]
                         + "': post-edge value is zero after subtraction"
-                        + " — normalisation skipped.");
+                        + " \u2014 normalisation skipped.");
                 norm = 1.0;
             }
             for (int j = 0; j < xValues.length; j++)
@@ -177,6 +192,28 @@ public class processSpectrum implements Command {
         if (outY.size() > 1)
             out.addLegend(String.join("\n", outNames));
         out.show();
+
+        // --- save CSV if requested ---
+        if (saveCsv) {
+            final SaveDialog sd = new SaveDialog("Save processed spectrum as CSV",
+                    title, ".csv");
+            if (sd.getFileName() != null) {
+                final String path = sd.getDirectory() + sd.getFileName();
+                try (BufferedWriter bw = new BufferedWriter(new FileWriter(path))) {
+                    bw.write(xHeading);
+                    for (String name : outNames) bw.write("," + name);
+                    bw.newLine();
+                    for (int i = 0; i < xValues.length; i++) {
+                        bw.write(String.valueOf(xValues[i]));
+                        for (double[] y : outY) bw.write("," + y[i]);
+                        bw.newLine();
+                    }
+                    IJ.log("processSpectrum: saved CSV to " + path);
+                } catch (IOException e) {
+                    IJ.error("Process Spectrum", "Could not save CSV:\n" + e.getMessage());
+                }
+            }
+        }
     }
 
     // -------------------------------------------------------------------------
