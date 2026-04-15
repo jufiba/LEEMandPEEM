@@ -6,7 +6,7 @@ Fiji/ImageJ2 plugins for low-energy electron microscopy (LEEM) and x-ray photoem
 
 ### UView reader (SCIFIO format)
 
-Registers the Elmitec UKSOFT2000 format (`.dat` extension) with SCIFIO, allowing files to be opened directly via **File > Open** or drag-and-drop in Fiji. Single images only; multi-image files are not supported.
+Registers the Elmitec UKSOFT2000 format (`.dat` extension) with SCIFIO, allowing files to be opened directly via **File > Open** or drag-and-drop in Fiji. Single images only; multi-image files are not supported. However, it is not too fast, due to the overhead of reading all the fileds. For long series of images, it is (much) faster to use the specific UView Folder Reader (see below).
 
 Metadata stored in the file header (start voltage, temperature, pressure, field of view, micrometer position, date, etc.) is attached to the dataset and visible via **Image > Show Info**.
 
