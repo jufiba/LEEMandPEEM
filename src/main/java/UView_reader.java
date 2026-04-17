@@ -209,13 +209,21 @@ public class UView_reader {
 					int UKIH_leemdataversion= stream.readUnsignedShort();
 
 					// When LEEMdataVersion > 2 its value IS the size of the external LEEM data block,
-					// located after the markup block. Values 1 and 2 indicate no external block.
-					if (UKIH_leemdataversion > 2) {
-						stream.seek(UKFH_size + recipeBlockSize + UKIH_size + MARKUP_size);
+					// located after the markup block. Versions 1 and 2 embed the LEEM data inside
+					// the image header starting at byte 28; the block runs to the end of the header.
+					if (UKIH_leemdataversion >= 1) {
+						int leemBlockSize;
+						if (UKIH_leemdataversion > 2) {
+							stream.seek(UKFH_size + recipeBlockSize + UKIH_size + MARKUP_size);
+							leemBlockSize = UKIH_leemdataversion;
+						} else {
+							stream.seek(UKFH_size + recipeBlockSize + 28);
+							leemBlockSize = UKIH_size - 28;
+						}
 						int i=0;
 						int rawTag;
 						int tag;
-						while (i < UKIH_leemdataversion) {
+						while (i < leemBlockSize) {
 							rawTag=stream.readUnsignedByte();
 							i++;
 							if (rawTag==0xFF) break;

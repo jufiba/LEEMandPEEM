@@ -293,11 +293,18 @@ public class UView_Folder_Reader implements PlugIn {
 			// --- parse LEEM data block for slice label ---
 			Map<String, String> meta = new LinkedHashMap<>();
 			meta.put("Date", formatTime(UKIH_time));
-			if (leemdatasize > 2) {
-				long leemOffset = imgHdrStart + UKIH_size + markupSize;
-				f.seek(leemOffset);
-				byte[] leemBlock = new byte[leemdatasize];
-				f.readFully(leemBlock);
+			if (leemdatasize >= 1) {
+				byte[] leemBlock;
+				if (leemdatasize > 2) {
+					f.seek(imgHdrStart + UKIH_size + markupSize);
+					leemBlock = new byte[leemdatasize];
+					f.readFully(leemBlock);
+				} else {
+					// versions 1 & 2: LEEM data is embedded in the image header at byte 28
+					f.seek(imgHdrStart + 28);
+					leemBlock = new byte[UKIH_size - 28];
+					f.readFully(leemBlock);
+				}
 				parseLEEM(leemBlock, leemdatasize > 1, meta);
 			}
 

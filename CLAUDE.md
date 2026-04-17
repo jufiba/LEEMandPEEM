@@ -46,6 +46,7 @@ Migrated from SCIFIO 0.28 to 0.45 (March 2026). Key API changes:
 - `attachedRecipeSize` is at absolute offset 46 in the file header
 - LEEM seek must account for the recipe block size
 - Hidden bit (0x80) must be stripped from raw tag bytes
+- `leemdataversion` 1 and 2: LEEM tag data is **embedded inside the image header** starting at byte 28 (runs to end of image header). Only version > 2 uses an external block after the markup. Both cases use the same tag format.
 
 ## History
 
