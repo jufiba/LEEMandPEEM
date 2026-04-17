@@ -10,6 +10,8 @@ Registers the Elmitec UKSOFT2000 format (`.dat` extension) with SCIFIO, allowing
 
 Metadata stored in the file header (start voltage, temperature, pressure, field of view, micrometer position, date, etc.) is attached to the dataset and visible via **Image > Show Info**.
 
+Both `leemdataversion` variants are supported: version > 2 (external LEEM data block after the image header) and versions 1–2 (LEEM data embedded inside the image header).
+
 ### UView Folder Reader
 
 **Plugins > LEEMandPEEM > UView Folder Reader**
