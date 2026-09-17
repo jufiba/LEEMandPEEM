@@ -6,17 +6,19 @@ Fiji/ImageJ2 plugins for low-energy electron microscopy (LEEM) and x-ray photoem
 
 ### UView reader (SCIFIO format)
 
-Registers the Elmitec UKSOFT2000 format (`.dat` extension) with SCIFIO, allowing files to be opened directly via **File > Open** or drag-and-drop in Fiji. Single images only; multi-image files are not supported. However, it is not too fast, due to the overhead of reading all the fields. For long series of images, it is (much) faster to use the specific UView Folder Reader (see below).
+Registers the Elmitec UKSOFT2000 format (`.dat` extension) with SCIFIO, allowing files to be opened directly via **File > Open** or drag-and-drop in Fiji. However, it is not too fast, due to the overhead of reading all the fields. For long series of images, it is (much) faster to use the specific UView Folder Reader (see below).
 
-Metadata stored in the file header (start voltage, temperature, pressure, field of view, micrometer position, date, etc.) is attached to the dataset and visible via **Image > Show Info**.
+Metadata stored in the file's LEEM data block (start voltage, temperature, pressure, field of view, micrometer position, date, all LEEM2000 module readings, etc.) is attached to the dataset and visible via **Image > Show Info**.
 
-Both `leemdataversion` variants are supported: version > 2 (external LEEM data block after the image header) and versions 1–2 (LEEM data embedded inside the image header).
+A `.dat` holding several images is opened as a stack, one plane per image. Note that in this case the attached metadata is that of the **first** image only — SCIFIO keeps one metadata table per dataset, so there is nowhere to put per-plane values. Use the UView Folder Reader instead when you need per-image metadata.
 
 ### UView Folder Reader
 
 **Plugins > LEEMandPEEM > UView Folder Reader**
 
-Opens a folder of `.dat` files as an ImageJ stack. A dialog allows filtering by filename substring and selecting a range and increment (options are remembered between runs). Each slice label contains the metadata extracted from that file's header in `key=value` format, which can be used by **Plot Intensity vs Tag**.
+Opens a folder of `.dat` files as an ImageJ stack. A dialog allows filtering by filename substring and selecting a range and increment (options are remembered between runs). Each slice label contains the metadata extracted from that image's LEEM data block in `key=value` format, which can be used by **Plot Intensity vs Tag**.
+
+Files holding several images contribute one slice per image, each with its own metadata, titled `name.dat [n/N]`. The range and increment select *files*; every image inside a selected file is read.
 
 #### Companion CSV support (Solaris DEMETER beamline)
 
@@ -41,6 +43,22 @@ Energy,ROI1_Intensity,ROI2_Intensity,...,M4b,...
 Both comma- and semicolon-delimited files are supported. UTF-8 BOM (added by Excel on Windows) is stripped automatically.
 
 Once loaded, `Energy (eV)` and `M4b` appear in the **Plot Intensity vs Tag** tag dropdowns alongside the metadata embedded in the `.dat` files themselves.
+
+### Metadata read from `.dat` files
+
+Both readers parse the LEEM data block described in Elmitec's [U-view file format specification](https://wiki-surfmoss.iqf.csic.es/images/8/8c/Software_UView_FileFormats_2017.pdf). This yields every LEEM2000 module reading (start voltage, objective, lens and deflector currents, stigmators, sample temperature, …) with its correct unit, plus the camera exposure and averaging mode, the Varian and additional gauges, micrometer position, field of view and calibration factor, MCP screen and channelplate voltages, phi/theta, mirror state and spin.
+
+Module names carry a unit code, so a tag appears as e.g. `Start Voltage (V)`, `Objective (mA)` or `Sample Temp. (°C)`. Readings that the microscope recorded but did not draw on the image are included too. Numeric values are written with a `.` decimal separator regardless of system locale, so they parse correctly in **Plot Intensity vs Tag** everywhere.
+
+All three layouts the format defines are supported:
+
+| Layout | Where the LEEM data lives |
+|--------|---------------------------|
+| `leemdataversion` > 2 | External block after the image markup block |
+| `leemdataversion` 1–2, image header version ≤ 5 | Embedded in the image header, `LEEMdata[256]` |
+| `leemdataversion` 1–2, image header version > 5 | Embedded in the image header, `LEEMdata[239]` |
+
+If a file contains a tag this reader does not know, parsing stops at that point (the rest of the block cannot be interpreted without knowing the tag's size) and an `UnreadLEEMTag` entry records which tag and where — please open an issue if you see one.
 
 ### Plot Intensity vs Tag
 
@@ -95,7 +113,7 @@ Copy `LEEMandPEEM-<version>.jar` from `target/` into the `plugins/` folder of yo
 
 ## Building from source
 
-Requires Maven and Java 11+.
+Requires Maven and Java 11+. Always use `clean` — stale classes from a previous build otherwise end up in the jar and cause duplicate-class conflicts in the Fiji updater.
 
 ```bash
 mvn clean package
