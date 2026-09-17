@@ -108,15 +108,21 @@ public class UView_Folder_Reader implements PlugIn {
 			IJ.showProgress(n, selected.size());
 			File f = selected.get(n);
 			try {
-				FrameData frame = readDat(f);
+			  // A .dat may contain several images; each becomes one slice.
+			  // `skipped` counts files, not frames: a size mismatch rejects the
+			  // whole file, since the stack's dimensions are already fixed.
+			  List<FrameData> frames = readDat(f);
+			  if (stack != null && !frames.isEmpty()
+					  && (frames.get(0).width != width || frames.get(0).height != height)) {
+				IJ.log("Skipped (different size): " + f.getName());
+				skipped++;
+				continue;
+			  }
+			  for (FrameData frame : frames) {
 				if (stack == null) {
 					width  = frame.width;
 					height = frame.height;
 					stack  = new ImageStack(width, height);
-				} else if (frame.width != width || frame.height != height) {
-					IJ.log("Skipped (different size): " + f.getName());
-					skipped++;
-					continue;
 				}
 				// append CSV tags (Energy, M4b) to slice label if available
 				Map<String, String> extra = csvTags.get(f.getName());
@@ -126,8 +132,12 @@ public class UView_Folder_Reader implements PlugIn {
 						sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
 					frame.label = sb.toString();
 				}
+				String title = frame.total > 1
+						? f.getName() + " [" + frame.index + "/" + frame.total + "]"
+						: f.getName();
 				ShortProcessor sp = new ShortProcessor(width, height, frame.pixels, null);
-				stack.addSlice(f.getName() + "\n" + frame.label, sp);
+				stack.addSlice(title + "\n" + frame.label, sp);
+			  }
 			} catch (Exception e) {
 				IJ.log("Skipped (read error): " + f.getName() + " — " + e.getMessage());
 				skipped++;
@@ -228,15 +238,23 @@ public class UView_Folder_Reader implements PlugIn {
 		int     width, height;
 		short[] pixels;
 		String  label;
+		int     index, total;   // 1-based position within its .dat file
 	}
 
-	private FrameData readDat(File file) throws IOException {
+	/**
+	 * Reads every image in a .dat file. A .dat may hold NrImages images, each
+	 * with its own image header, markup block, LEEM data block and pixel data
+	 * (see the format spec, "Data File containing multiple images"). The walk
+	 * is checked against the file length so a layout we misunderstand fails
+	 * loudly instead of silently returning the wrong frame.
+	 */
+	private List<FrameData> readDat(File file) throws IOException {
 		try (RandomAccessFile f = new RandomAccessFile(file, "r")) {
 
 			// --- verify magic ---
 			byte[] magic = new byte[MAGIC.length()];
 			f.readFully(magic);
-			if (!new String(magic).startsWith(MAGIC))
+			if (!new String(magic, StandardCharsets.ISO_8859_1).startsWith(MAGIC))
 				throw new IOException("Not a UView file");
 
 			// --- file header ---
@@ -246,8 +264,9 @@ public class UView_Folder_Reader implements PlugIn {
 			// bitsperpixel at 24 — not needed
 
 			f.seek(40);
-			int width  = readUShort(f);
-			int height = readUShort(f);
+			int width     = readUShort(f);
+			int height    = readUShort(f);
+			int nrImages  = Math.max(1, readUShort(f));   // offset 44
 
 			int recipeBlockSize = 0;
 			if (UKFH_version >= 7) {
@@ -255,69 +274,94 @@ public class UView_Folder_Reader implements PlugIn {
 				recipeBlockSize = readUShort(f) > 0 ? 128 : 0;
 			}
 
-			// --- image header ---
-			long imgHdrStart = UKFH_size + recipeBlockSize;
-			f.seek(imgHdrStart);
-			int  UKIH_size    = readUShort(f);
-			/*version*/         readUShort(f);
-			/*colorlow*/        readUShort(f);
-			/*colorhigh*/       readUShort(f);
-			long UKIH_time    = readLong(f);     // offset 8
-			/*maskx*/           readUShort(f);   // offset 16
-			/*masky*/           readUShort(f);   // offset 18
-			/*rotateMask*/      readUShort(f);   // offset 20
-			int  attachedMarkupSize = readUShort(f); // offset 22
-			/*spin*/            readUShort(f);   // offset 24
-			int  leemdatasize = readUShort(f);   // offset 26
+			final int frameBytes = width * height * 2;
+			final List<FrameData> frames = new ArrayList<>(nrImages);
+			long p = UKFH_size + recipeBlockSize;
 
-			int markupSize = attachedMarkupSize > 0
-					? 128 * ((attachedMarkupSize / 128) + 1) : 0;
+			for (int n = 0; n < nrImages; n++) {
+				// --- image header ---
+				f.seek(p);
+				int  UKIH_size    = readUShort(f);
+				int  UKIH_version = readUShort(f);
+				/*colorlow*/        readUShort(f);
+				/*colorhigh*/       readUShort(f);
+				long UKIH_time    = readLong(f);     // offset 8
+				/*maskx*/           readUShort(f);   // offset 16
+				/*masky*/           readUShort(f);   // offset 18
+				/*rotateMask*/      readUShort(f);   // offset 20
+				int  attachedMarkupSize = readUShort(f); // offset 22
+				/*spin*/            readUShort(f);   // offset 24
+				int  leemdatasize = readUShort(f);   // offset 26
 
-			// --- read image data in one shot ---
-			long imageOffset = f.length() - 2L * width * height;
-			f.seek(imageOffset);
-			byte[] raw = new byte[width * height * 2];
-			f.readFully(raw);
+				int markupSize = attachedMarkupSize > 0
+						? 128 * ((attachedMarkupSize / 128) + 1) : 0;
+				int leemBlockSize = leemdatasize > 2 ? leemdatasize : 0;
+				long dataOffset = p + UKIH_size + markupSize + leemBlockSize;
 
-			// vertical flip: swap rows using System.arraycopy, then bulk short conversion
-			int rowBytes = width * 2;
-			byte[] flipped = new byte[raw.length];
-			for (int row = 0; row < height; row++)
-				System.arraycopy(raw, (height - 1 - row) * rowBytes,
-				                 flipped, row * rowBytes, rowBytes);
+				if (dataOffset + frameBytes > f.length())
+					throw new IOException("image " + (n + 1) + " of " + nrImages
+							+ " runs past end of file (offset " + dataOffset + ")");
 
-			short[] pixels = new short[width * height];
-			ByteBuffer.wrap(flipped).order(ByteOrder.LITTLE_ENDIAN)
-			          .asShortBuffer().get(pixels);
-
-			// --- parse LEEM data block for slice label ---
-			Map<String, String> meta = new LinkedHashMap<>();
-			meta.put("Date", formatTime(UKIH_time));
-			if (leemdatasize >= 1) {
-				byte[] leemBlock;
-				if (leemdatasize > 2) {
-					f.seek(imgHdrStart + UKIH_size + markupSize);
-					leemBlock = new byte[leemdatasize];
+				// --- LEEM data block -> slice label ---
+				Map<String, String> meta = new LinkedHashMap<>();
+				meta.put("Date", formatTime(UKIH_time));
+				if (leemdatasize >= 1) {
+					byte[] leemBlock;
+					if (leemdatasize > 2) {
+						f.seek(p + UKIH_size + markupSize);
+						leemBlock = new byte[leemdatasize];
+					} else {
+						// LEEMdata array at image-header offset 28. Its size depends on
+						// the IMAGE HEADER version, not on UKIH_size:
+						//   version <= 5: LEEMdata[256], then a 4-byte spare
+						//   version  > 5: LEEMdata[239], then applied_processing / gray
+						//                 adjust zone / backgroundvalue / rendering fields
+						f.seek(p + 28);
+						leemBlock = new byte[Math.min(UKIH_version > 5 ? 239 : 256,
+								UKIH_size - 28)];
+					}
 					f.readFully(leemBlock);
-				} else {
-					// versions 1 & 2: LEEM data is embedded in the image header at byte 28
-					f.seek(imgHdrStart + 28);
-					leemBlock = new byte[UKIH_size - 28];
-					f.readFully(leemBlock);
+					parseLEEM(leemBlock, leemdatasize > 1, meta);
 				}
-				parseLEEM(leemBlock, leemdatasize > 1, meta);
+
+				// --- pixel data ---
+				f.seek(dataOffset);
+				byte[] raw = new byte[frameBytes];
+				f.readFully(raw);
+
+				// vertical flip: swap rows using System.arraycopy, then bulk short conversion
+				int rowBytes = width * 2;
+				byte[] flipped = new byte[raw.length];
+				for (int row = 0; row < height; row++)
+					System.arraycopy(raw, (height - 1 - row) * rowBytes,
+					                 flipped, row * rowBytes, rowBytes);
+
+				short[] pixels = new short[width * height];
+				ByteBuffer.wrap(flipped).order(ByteOrder.LITTLE_ENDIAN)
+				          .asShortBuffer().get(pixels);
+
+				StringBuilder sb = new StringBuilder();
+				for (Map.Entry<String, String> e : meta.entrySet())
+					sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+
+				FrameData fd = new FrameData();
+				fd.width  = width;
+				fd.height = height;
+				fd.pixels = pixels;
+				fd.label  = sb.toString();
+				fd.index  = n + 1;
+				fd.total  = nrImages;
+				frames.add(fd);
+
+				p = dataOffset + frameBytes;
 			}
 
-			StringBuilder sb = new StringBuilder();
-			for (Map.Entry<String, String> e : meta.entrySet())
-				sb.append(e.getKey()).append('=').append(e.getValue()).append('\n');
+			if (p != f.length())
+				IJ.log("Warning: " + file.getName() + " — walked " + nrImages
+						+ " image(s) to offset " + p + " but file is " + f.length()
+						+ " bytes; layout may be misread.");
 
-			FrameData fd = new FrameData();
-			fd.width  = width;
-			fd.height = height;
-			fd.pixels = pixels;
-			fd.label  = sb.toString();
-			return fd;
+			return frames;
 		}
 	}
 
@@ -326,13 +370,12 @@ public class UView_Folder_Reader implements PlugIn {
 		int i = 0;
 		while (i < block.length) {
 			int rawTag = block[i++] & 0xFF;
-			if (rawTag == 0xFF) break;
+			// Spec: 0xFF means SKIP this byte, it is NOT an end-of-block marker.
+			// The block length is the terminator.
+			if (rawTag == 0xFF) continue;
 			int tag = rawTag & 0x7F; // strip "hidden" bit
 
 			switch (tag) {
-			case 16:
-				i++;
-				break;
 			case 100: {
 				float x = getFloat(block, i); i += 4;
 				float y = getFloat(block, i); i += 4;
@@ -342,7 +385,7 @@ public class UView_Folder_Reader implements PlugIn {
 			}
 			case 101: {
 				int end = indexOf0(block, i);
-				meta.put("FOV", new String(block, i, end - i));
+				meta.put("FOV", new String(block, i, end - i, StandardCharsets.ISO_8859_1));
 				i = end + 1;
 				break;
 			}
@@ -352,42 +395,70 @@ public class UView_Folder_Reader implements PlugIn {
 				meta.put("Varian2", fmt(getFloat(block, i))); i += 4; break;
 			case 104: {
 				meta.put("CameraExposure", fmt(getFloat(block, i)) + " s"); i += 4;
-				if (readAveragingBytes) i += 2; // B1, B2
+				if (readAveragingBytes) {
+					// B1>0 averaging on, B2 = number of images (2..127);
+					// B1==0 averaging off; B1<0 (0xFF) sliding average.
+					int b1 = block[i] & 0xFF, b2 = block[i + 1] & 0xFF; i += 2;
+					meta.put("Averaging", b1 == 0 ? "off"
+							: b1 > 127 ? "sliding" : Integer.toString(b2));
+				}
 				break;
 			}
 			case 105: {
 				int end = indexOf0(block, i);
-				String title = new String(block, i, end - i).trim();
+				String title = new String(block, i, end - i, StandardCharsets.ISO_8859_1).trim();
 				if (!title.isEmpty()) meta.put("Title", title);
 				i = end + 1;
 				break;
 			}
-			case 106: case 107: case 108: case 109: {
+			// Varian gauges #1-#4, plus the additional gauges #5.. at 120-130.
+			// All share the same layout: name, units, float.
+			case 106: case 107: case 108: case 109:
+			case 120: case 121: case 122: case 123: case 124: case 125:
+			case 126: case 127: case 128: case 129: case 130: {
 				int end1 = indexOf0(block, i);
-				String name = new String(block, i, end1 - i); i = end1 + 1;
+				String name = new String(block, i, end1 - i, StandardCharsets.ISO_8859_1); i = end1 + 1;
 				int end2 = indexOf0(block, i);
-				String units = new String(block, i, end2 - i); i = end2 + 1;
+				String units = new String(block, i, end2 - i, StandardCharsets.ISO_8859_1); i = end2 + 1;
 				meta.put(name + " (" + units + ")", fmt(getFloat(block, i))); i += 4;
 				break;
 			}
 			case 110: {
+				// Spec: "FOV, camera to FOV cal. factor": the string is the FOV
+				// name, the float is the calibration factor.
 				int end = indexOf0(block, i);
-				String unit = new String(block, i, end - i); i = end + 1;
-				meta.put("FOVCalibration", fmt(getFloat(block, i)) + " " + unit); i += 4;
+				meta.put("FOVName", new String(block, i, end - i, StandardCharsets.ISO_8859_1)); i = end + 1;
+				meta.put("FOVCalFactor", fmt(getFloat(block, i))); i += 4;
 				break;
 			}
 			case 111:
 				meta.put("Phi",   fmt(getFloat(block, i))); i += 4;
 				meta.put("Theta", fmt(getFloat(block, i))); i += 4;
 				break;
+			case 112:
+				// Spin. Payload size is not documented; 2 bytes determined
+				// empirically (spec declares spin a short).
+				meta.put("Spin",
+						Integer.toString((short) ((block[i] & 0xFF) | (block[i + 1] << 8))));
+				i += 2; break;
+			case 113:
+				// FOV rotation (from LEEM presets). Payload size is not documented;
+				// 4 bytes determined empirically.
+				meta.put("FOVRotation", fmt(getFloat(block, i))); i += 4; break;
+			case 114:
+				// Mirror state. Payload size is not documented; 2 bytes empirically.
+				meta.put("MirrorState",
+						Integer.toString((short) ((block[i] & 0xFF) | (block[i + 1] << 8))));
+				i += 2; break;
 			case 115:
 				meta.put("MCPScreenVoltage",  fmt(getFloat(block, i)) + " kV"); i += 4; break;
 			case 116:
 				meta.put("MCPChannelPlate",   fmt(getFloat(block, i)) + " kV"); i += 4; break;
 			default:
 				if (tag < 100) {
+					// LEEM2000 module reading: name + unit digit + NUL + float.
 					int end = indexOf0(block, i);
-					String nameAndUnit = new String(block, i, end - i); i = end + 1;
+					String nameAndUnit = new String(block, i, end - i, StandardCharsets.ISO_8859_1); i = end + 1;
 					float val = getFloat(block, i); i += 4;
 					if (nameAndUnit.length() > 0) {
 						char   unitCode = nameAndUnit.charAt(nameAndUnit.length() - 1);
@@ -397,7 +468,13 @@ public class UView_Folder_Reader implements PlugIn {
 						String key = unit.isEmpty() ? modName : modName + " (" + unit + ")";
 						meta.put(key, fmt(val));
 					}
+					break;
 				}
+				// Unknown tag >= 100: payload size unknown, so the byte stream can no
+				// longer be interpreted. Stop rather than resynchronise on garbage
+				// (e.g. tag 112, spin, whose size the format spec does not give).
+				meta.put("UnreadLEEMTag", "tag " + tag + " at block offset " + (i - 1));
+				i = block.length;
 				break;
 			}
 		}
@@ -428,7 +505,11 @@ public class UView_Folder_Reader implements PlugIn {
 	}
 
 	private static String fmt(float v) {
-		return String.format("%.4g", v);
+		// Locale.US: these values are parsed back with Double.parseDouble by
+		// plotIntensityVsTag, which only accepts '.' as the decimal separator.
+		// Under a comma-decimal locale every numeric tag was silently dropped
+		// from the tag dropdown.
+		return String.format(java.util.Locale.US, "%.4g", v);
 	}
 
 	private static String formatTime(long winFileTime) {

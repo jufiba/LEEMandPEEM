@@ -81,6 +81,17 @@ public class UView_reader {
 			@Field(label="offset")
 			private int offset;
 
+			/** Absolute file offset of each image's pixel data. */
+			private long[] dataOffsets = new long[0];
+
+			public long[] getDataOffsets() {
+				return dataOffsets;
+			}
+
+			public void setDataOffsets(long[] dataOffsets) {
+				this.dataOffsets=dataOffsets;
+			}
+
 			public double getStartVoltage() {
 				return startvoltage;
 			}
@@ -149,6 +160,21 @@ public class UView_reader {
 		}
 
 		public static class Parser extends AbstractParser<Metadata> {
+
+			/**
+			 * Reads a NUL-terminated string. SCIFIO 0.45's
+			 * {@code DataHandle.readCString()} returns the terminating NUL as part
+			 * of the string (0.28 did not), which both corrupts the value and makes
+			 * {@code length()} one more than the bytes the caller should account for.
+			 */
+			private static String readCStr(final DataHandle<Location> stream)
+					throws IOException
+			{
+				final String s = stream.readCString();
+				return (s != null && s.length() > 0 && s.charAt(s.length() - 1) == '\0')
+						? s.substring(0, s.length() - 1) : s;
+			}
+
 			@Override
 			protected void typedParse(final DataHandle<Location> stream,
 					final Metadata meta, final SCIFIOConfig config) throws IOException,
@@ -162,34 +188,69 @@ public class UView_reader {
 				stream.seek(40);
 				int UKFH_width = stream.readUnsignedShort();
 				int UKFH_height= stream.readUnsignedShort();
-				int UKFH_nimages = stream.readUnsignedShort();
+				int UKFH_nimages = Math.max(1, stream.readUnsignedShort());
 				iMeta.addAxis(Axes.X, UKFH_width);
 				iMeta.addAxis(Axes.Y, UKFH_height);
-				meta.setOffset((int)filelength-2*UKFH_width*UKFH_height); // This only works for a single image!
+				// File header, starts with magic string. Everything up to and
+				// including the image walk is needed to locate pixel data, so it
+				// must run at every MetadataLevel — openPlane depends on it.
+				stream.seek(20);
+				int UKFH_size = stream.readUnsignedShort();
+				int UKFH_version = stream.readUnsignedShort();
+				int UKFH_bitsperpixel= stream.readUnsignedShort();
+				if (UKFH_version>7) {
+					int UKFH_camerabitsperpixel=stream.readUnsignedShort();
+					int UKFH_MCPdiameterinpixels=stream.readUnsignedShort();
+					int UKFH_hbinning=stream.readUnsignedByte();
+					int UKFH_vbinning=stream.readUnsignedByte();
+				}
+				// attachedRecipeSize is always at absolute offset 46 in the file header
+				// (per spec: file header is 104 bytes fixed, attachedRecipeSize at offset 46)
+				int UKFH_attachedrecipesize;
+				if (UKFH_version>6) {
+					stream.seek(46);
+					UKFH_attachedrecipesize=stream.readUnsignedShort();
+				} else {
+					UKFH_attachedrecipesize=0;
+				}
+				// The recipe block on disk is always 128 bytes when present (attachedRecipeSize > 0)
+				int recipeBlockSize = (UKFH_attachedrecipesize > 0) ? 128 : 0;
+
+				{
+					// A .dat may hold NrImages images, each with its own image header,
+					// markup block, LEEM data block and pixel data. Walk them to get
+					// the data offset of every plane.
+					final long frameBytes = 2L*UKFH_width*UKFH_height;
+					final long[] offsets = new long[UKFH_nimages];
+					long walk = UKFH_size + recipeBlockSize;
+					for (int n=0; n<UKFH_nimages; n++) {
+						stream.seek(walk);
+						int ihSize = stream.readUnsignedShort();
+						stream.seek(walk + 22);
+						int mk = stream.readUnsignedShort();
+						int mkSize = (mk > 0) ? 128*((mk/128)+1) : 0;
+						stream.seek(walk + 26);
+						int ldv = stream.readUnsignedShort();
+						offsets[n] = walk + ihSize + mkSize + (ldv > 2 ? ldv : 0);
+						if (offsets[n] + frameBytes > filelength)
+							throw new FormatException("image " + (n+1) + " of " + UKFH_nimages
+									+ " runs past end of file (offset " + offsets[n] + ")");
+						walk = offsets[n] + frameBytes;
+					}
+					meta.setDataOffsets(offsets);
+					meta.setOffset((int)offsets[0]);
+					if (UKFH_nimages > 1) {
+						// One plane per image. Metadata below is the FIRST image's
+						// LEEM block; SCIFIO's table is per image index, so per-plane
+						// tags are not represented here (use UView_Folder_Reader for
+						// per-frame metadata as slice labels).
+						iMeta.addAxis(Axes.TIME, UKFH_nimages);
+					}
+
+				}
+
 				final MetadataLevel level = config.parserGetLevel();
 				if (level != MetadataLevel.MINIMUM) {
-					// File header, starts with magic string
-					stream.seek(20);
-					int UKFH_size = stream.readUnsignedShort();
-					int UKFH_version = stream.readUnsignedShort();
-					int UKFH_bitsperpixel= stream.readUnsignedShort();
-					if (UKFH_version>7) {
-						int UKFH_camerabitsperpixel=stream.readUnsignedShort();
-						int UKFH_MCPdiameterinpixels=stream.readUnsignedShort();
-						int UKFH_hbinning=stream.readUnsignedByte();
-						int UKFH_vbinning=stream.readUnsignedByte();
-					}
-					// attachedRecipeSize is always at absolute offset 46 in the file header
-					// (per spec: file header is 104 bytes fixed, attachedRecipeSize at offset 46)
-					int UKFH_attachedrecipesize;
-					if (UKFH_version>6) {
-						stream.seek(46);
-						UKFH_attachedrecipesize=stream.readUnsignedShort();
-					} else {
-						UKFH_attachedrecipesize=0;
-					}
-					// The recipe block on disk is always 128 bytes when present (attachedRecipeSize > 0)
-					int recipeBlockSize = (UKFH_attachedrecipesize > 0) ? 128 : 0;
 					stream.seek(UKFH_size + recipeBlockSize);
 					// Image header
 					int UKIH_size= stream.readUnsignedShort();
@@ -214,11 +275,21 @@ public class UView_reader {
 					if (UKIH_leemdataversion >= 1) {
 						int leemBlockSize;
 						if (UKIH_leemdataversion > 2) {
+							// Spec: LEEMdataVersion > 2 -> its value IS the size of an external
+							// LEEM data block placed after the IMAGE MARKUP block.
 							stream.seek(UKFH_size + recipeBlockSize + UKIH_size + MARKUP_size);
 							leemBlockSize = UKIH_leemdataversion;
 						} else {
+							// Versions 1 and 2: the data lives in the image header's
+							// LEEMdata array at offset 28. Its size depends on the IMAGE
+							// HEADER version, not on UKIH_size:
+							//   version  <= 5: LEEMdata[256], then a 4-byte spare
+							//   version   > 5: LEEMdata[239], then applied_processing,
+							//                  gray adjust zone, backgroundvalue,
+							//                  desired_rendering and the rendering args
 							stream.seek(UKFH_size + recipeBlockSize + 28);
-							leemBlockSize = UKIH_size - 28;
+							leemBlockSize = Math.min(UKIH_version > 5 ? 239 : 256,
+									UKIH_size - 28);
 						}
 						int i=0;
 						int rawTag;
@@ -226,13 +297,11 @@ public class UView_reader {
 						while (i < leemBlockSize) {
 							rawTag=stream.readUnsignedByte();
 							i++;
-							if (rawTag==0xFF) break;
+							// Spec: 0xFF means SKIP this byte, it is NOT an end-of-block marker.
+							// The block length is the terminator.
+							if (rawTag==0xFF) continue;
 							tag = rawTag & 0x7F; // strip "hidden" bit (0x80 = recorded but not shown on image)
 							switch (tag) {
-								case 16:
-									stream.readUnsignedByte();
-									i+=1;
-									break;
 								case 100:
 									float UKLD_micrometerx=stream.readFloat();
 									float UKLD_micrometery=stream.readFloat();
@@ -243,7 +312,7 @@ public class UView_reader {
 									i+=8;
 									break;
 								case 101:
-									String UKLD_fov=stream.readCString();
+									String UKLD_fov=readCStr(stream);
 									meta.getTable().put("FOV", UKLD_fov);
 									i+=UKLD_fov.length()+1;
 									break;
@@ -260,52 +329,46 @@ public class UView_reader {
 								case 104:
 									float UKLD_camera_exposure=stream.readFloat();
 									meta.getTable().put("CameraExposure", UKLD_camera_exposure);
-									if (UKIH_leemdataversion>1) {
-										stream.readByte();
-										stream.readByte();
-										i+=2;
-									}
 									i+=4;
+									if (UKIH_leemdataversion>1) {
+										// B1/B2: B1>0 averaging on, B2 = number of images (2..127);
+										// B1==0 averaging off; B1<0 (0xFF) sliding average.
+										int UKLD_b1=stream.readUnsignedByte();
+										int UKLD_b2=stream.readUnsignedByte();
+										i+=2;
+										String avg;
+										if (UKLD_b1==0) avg="off";
+										else if (UKLD_b1>127) avg="sliding";
+										else avg=Integer.toString(UKLD_b2);
+										meta.getTable().put("Averaging", avg);
+									}
 									break;
 								case 105:
-									String UKLD_title=stream.readCString();
-									meta.getTable().put("Title", UKLD_title);
+									String UKLD_title=readCStr(stream);
+									if (!UKLD_title.trim().isEmpty())
+										meta.getTable().put("Title", UKLD_title);
 									i+=UKLD_title.length()+1;
 									break;
-								case 106:
-									String UKLD_gauge1=stream.readCString();
-									String UKLD_gauge1units=stream.readCString();
-									float UKLD_gauge1value=stream.readFloat();
-									meta.getTable().put(UKLD_gauge1 + " (" + UKLD_gauge1units + ")", UKLD_gauge1value);
-									i+=UKLD_gauge1.length()+1+UKLD_gauge1units.length()+1+4;
+								// Varian gauges #1-#4, plus the additional gauges #5.. at 120-130.
+								// All share the same layout: name, units, float.
+								case 106: case 107: case 108: case 109:
+								case 120: case 121: case 122: case 123: case 124: case 125:
+								case 126: case 127: case 128: case 129: case 130: {
+									String UKLD_gaugename=readCStr(stream);
+									String UKLD_gaugeunits=readCStr(stream);
+									float UKLD_gaugevalue=stream.readFloat();
+									meta.getTable().put(UKLD_gaugename + " (" + UKLD_gaugeunits + ")", UKLD_gaugevalue);
+									i+=UKLD_gaugename.length()+1+UKLD_gaugeunits.length()+1+4;
 									break;
-								case 107:
-									String UKLD_gauge2=stream.readCString();
-									String UKLD_gauge2units=stream.readCString();
-									float UKLD_gauge2value=stream.readFloat();
-									meta.getTable().put(UKLD_gauge2 + " (" + UKLD_gauge2units + ")", UKLD_gauge2value);
-									i+=UKLD_gauge2.length()+1+UKLD_gauge2units.length()+1+4;
-									break;
-								case 108:
-									String UKLD_gauge3=stream.readCString();
-									String UKLD_gauge3units=stream.readCString();
-									float UKLD_gauge3value=stream.readFloat();
-									meta.getTable().put(UKLD_gauge3 + " (" + UKLD_gauge3units + ")", UKLD_gauge3value);
-									i+=UKLD_gauge3.length()+1+UKLD_gauge3units.length()+1+4;
-									break;
-								case 108+1:
-									String UKLD_gauge4=stream.readCString();
-									String UKLD_gauge4units=stream.readCString();
-									float UKLD_gauge4value=stream.readFloat();
-									meta.getTable().put(UKLD_gauge4 + " (" + UKLD_gauge4units + ")", UKLD_gauge4value);
-									i+=UKLD_gauge4.length()+1+UKLD_gauge4units.length()+1+4;
-									break;
+								}
 								case 110:
-									String UKLD_fovcal=stream.readCString();
-									float UKLD_fovcalvalue=stream.readFloat();
-									meta.getTable().put("FOVCalibration", UKLD_fovcalvalue);
-									meta.getTable().put("FOVCalibrationUnit", UKLD_fovcal);
-									i+=UKLD_fovcal.length()+1+4;
+									// Spec: "FOV, camera to FOV cal. factor": the string is the
+									// FOV name, the float is the calibration factor.
+									String UKLD_fovname=readCStr(stream);
+									float UKLD_fovcalfactor=stream.readFloat();
+									meta.getTable().put("FOVName", UKLD_fovname);
+									meta.getTable().put("FOVCalFactor", UKLD_fovcalfactor);
+									i+=UKLD_fovname.length()+1+4;
 									break;
 								case 111:
 									float UKLD_phi=stream.readFloat();
@@ -313,6 +376,27 @@ public class UView_reader {
 									meta.getTable().put("Phi", UKLD_phi);
 									meta.getTable().put("Theta", UKLD_theta);
 									i+=8;
+									break;
+								case 112:
+									// Spin. Payload size is not documented; 2 bytes
+									// determined empirically (spec declares spin a short).
+									int UKLD_spin=stream.readShort();
+									meta.getTable().put("Spin", UKLD_spin);
+									i+=2;
+									break;
+								case 113:
+									// FOV rotation (from LEEM presets). Payload size is not
+									// documented; 4 bytes determined empirically.
+									float UKLD_fovrotation=stream.readFloat();
+									meta.getTable().put("FOVRotation", UKLD_fovrotation);
+									i+=4;
+									break;
+								case 114:
+									// Mirror state. Payload size is not documented;
+									// 2 bytes determined empirically.
+									int UKLD_mirrorstate=stream.readShort();
+									meta.getTable().put("MirrorState", UKLD_mirrorstate);
+									i+=2;
 									break;
 								case 115:
 									float UKLD_MCPscreenvoltage=stream.readFloat();
@@ -326,14 +410,15 @@ public class UView_reader {
 									break;
 								default:
 									if (tag<100) {
+										// LEEM2000 module reading.
 										// Format: name + unit_digit(0-9) + 0x00 + float(4)
 										// Unit codes: 0=none,1=V,2=mA,3=A,4=C,5=K,6=mV,7=pA,8=nA,9=uA
-										String nameAndUnit=stream.readCString();
+										String nameAndUnit=readCStr(stream);
 										float module_reading=stream.readFloat();
 										if (nameAndUnit.length() > 0) {
 											char unitCode=nameAndUnit.charAt(nameAndUnit.length()-1);
 											String modName=nameAndUnit.substring(0, nameAndUnit.length()-1);
-											String[] unitNames={"","V","mA","A","\u00b0C","K","mV","pA","nA","\u00b5A"};
+											String[] unitNames={"","V","mA","A","°C","K","mV","pA","nA","µA"};
 											String unit=(unitCode>='0' && unitCode<='9') ? unitNames[unitCode-'0'] : "";
 											String key=unit.isEmpty() ? modName : modName+" ("+unit+")";
 											meta.getTable().put(key, module_reading);
@@ -341,7 +426,14 @@ public class UView_reader {
 										i+=nameAndUnit.length()+1+4;
 										break;
 									}
-
+									// Unknown tag >= 100: its payload size is unknown, so the
+									// byte stream can no longer be interpreted. Stop rather than
+									// resynchronise on garbage (e.g. tag 112, spin, whose size
+									// the format spec does not give).
+									meta.getTable().put("UnreadLEEMTag",
+											"tag " + tag + " at block offset " + (i-1));
+									i = leemBlockSize;
+									break;
 								}
 						}
 					}
@@ -385,7 +477,9 @@ public class UView_reader {
 
 				int width=(int)meta.get(imageIndex).getAxisLength(Axes.X);
 				int height=(int)meta.get(imageIndex).getAxisLength(Axes.Y);
-				getHandle().seek(meta.getOffset());
+				final long[] offsets = meta.getDataOffsets();
+				getHandle().seek(planeIndex < offsets.length
+						? offsets[(int)planeIndex] : meta.getOffset());
 				for(int i=0;i<height;i++) {
 					getHandle().readFully(buf,(height-1-i)*width*2,width*2); // Need to flip vertically
 				}
