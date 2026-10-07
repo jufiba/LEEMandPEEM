@@ -109,7 +109,9 @@ One-shot beamtime command that chains **Plot Intensity vs Tag** and **Process Sp
 
 ## Installation
 
-Copy `LEEMandPEEM-<version>.jar` from `target/` into the `plugins/` folder of your Fiji installation and restart Fiji.
+Download `LEEMandPEEM-<version>.jar` from the [latest release](https://github.com/jufiba/LEEMandPEEM/releases/latest), copy it into the `plugins/` folder of your Fiji installation (removing any older LEEMandPEEM jar), and restart Fiji.
+
+If you build from source (below), the jar is in `target/` instead.
 
 ## Building from source
 
