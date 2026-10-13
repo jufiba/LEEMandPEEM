@@ -61,6 +61,9 @@ public class UView_Folder_Reader implements PlugIn {
 		gd.addNumericField("Starting image:",       prevStart,     0);
 		gd.addNumericField("Number of images:",     prevNum,       0);
 		gd.addNumericField("Increment:",            prevIncrement, 0);
+		// Not persisted on purpose: a remembered single-image choice would
+		// silently drop frames from multi-image files on the next run.
+		gd.addNumericField("Image within .dat (0 = all):", 0, 0);
 		gd.showDialog();
 		if (gd.wasCanceled()) return;
 
@@ -68,6 +71,7 @@ public class UView_Folder_Reader implements PlugIn {
 		int    startImg  = Math.max(1, (int) gd.getNextNumber());
 		int    numImages = Math.max(1, (int) gd.getNextNumber());
 		int    increment = Math.max(1, (int) gd.getNextNumber());
+		int    imageInDat = Math.max(0, (int) gd.getNextNumber());   // 0 = all
 
 		ij.Prefs.set(PREF_FILTER,    filter);
 		ij.Prefs.set(PREF_START,     startImg);
@@ -111,7 +115,12 @@ public class UView_Folder_Reader implements PlugIn {
 			  // A .dat may contain several images; each becomes one slice.
 			  // `skipped` counts files, not frames: a size mismatch rejects the
 			  // whole file, since the stack's dimensions are already fixed.
-			  List<FrameData> frames = readDat(f);
+			  List<FrameData> frames = readDat(f, imageInDat);
+			  if (frames.isEmpty()) {
+				IJ.log("Skipped (has fewer than " + imageInDat + " images): " + f.getName());
+				skipped++;
+				continue;
+			  }
 			  if (stack != null && !frames.isEmpty()
 					  && (frames.get(0).width != width || frames.get(0).height != height)) {
 				IJ.log("Skipped (different size): " + f.getName());
@@ -247,8 +256,13 @@ public class UView_Folder_Reader implements PlugIn {
 	 * (see the format spec, "Data File containing multiple images"). The walk
 	 * is checked against the file length so a layout we misunderstand fails
 	 * loudly instead of silently returning the wrong frame.
+	 *
+	 * @param only 1-based image to return, or 0 for all. The chain is still
+	 *             walked in full so the length check applies; only the
+	 *             selected image's metadata and pixels are read. Returns an
+	 *             empty list if the file holds fewer than {@code only} images.
 	 */
-	private List<FrameData> readDat(File file) throws IOException {
+	private List<FrameData> readDat(File file, int only) throws IOException {
 		try (RandomAccessFile f = new RandomAccessFile(file, "r")) {
 
 			// --- verify magic ---
@@ -301,6 +315,11 @@ public class UView_Folder_Reader implements PlugIn {
 				if (dataOffset + frameBytes > f.length())
 					throw new IOException("image " + (n + 1) + " of " + nrImages
 							+ " runs past end of file (offset " + dataOffset + ")");
+
+				if (only != 0 && n + 1 != only) {
+					p = dataOffset + frameBytes;
+					continue;
+				}
 
 				// --- LEEM data block -> slice label ---
 				Map<String, String> meta = new LinkedHashMap<>();

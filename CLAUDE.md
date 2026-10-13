@@ -82,7 +82,9 @@ image's metadata, discarding every frame in between.
 - **UView_Folder_Reader** emits one stack slice per image, each with its own slice
   label, so per-frame tags (`Spin`, `Sample Temp.`, …) are plottable. Slices from a
   multi-image file are titled `name.dat [n/N]`. The dialog's start/count/increment
-  still select *files*; every image inside a selected file is read.
+  still select *files*; every image inside a selected file is read unless the
+  "Image within .dat" field names one (1-based, 0 = all, default). That field is
+  deliberately not persisted in Prefs, so a stale choice can't silently drop frames.
 - **UView_reader** (SCIFIO) exposes the images as planes on an added `Axes.TIME`
   axis. Its metadata table is the **first** image's LEEM block only — SCIFIO's table
   is per image index, so per-plane tags have nowhere to go. Use the folder reader
