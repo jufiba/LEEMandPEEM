@@ -18,7 +18,7 @@ A `.dat` holding several images is opened as a stack, one plane per image. Note 
 
 Opens a folder of `.dat` files as an ImageJ stack. A dialog allows filtering by filename substring and selecting a range and increment (options are remembered between runs). Each slice label contains the metadata extracted from that image's LEEM data block in `key=value` format, which can be used by **Plot Intensity vs Tag**.
 
-Files holding several images contribute one slice per image, each with its own metadata, titled `name.dat [n/N]`. The range and increment select *files*; every image inside a selected file is read.
+Files holding several images contribute one slice per image, each with its own metadata, titled `name.dat [n/N]`. The range and increment select *files*; every image inside a selected file is read, unless **Image within .dat** is set to N (1-based), in which case only the Nth image of each file is loaded. It defaults to 0 (all images) and, unlike the other options, is not remembered between runs. Files with fewer than N images are skipped and noted in the Log window.
 
 #### Companion CSV support (Solaris DEMETER beamline)
 

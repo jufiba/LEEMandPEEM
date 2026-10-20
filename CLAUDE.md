@@ -5,7 +5,7 @@
 Fiji/ImageJ2 plugins for low-energy electron microscopy (LEEM) and photoemission electron microscopy (PEEM), targeting Elmitec instruments running U-view 2002 software.
 
 **GitHub:** https://github.com/Jufiba/LEEMandPEEM  
-**Current version:** 2.3.0  
+**Current version:** 2.4.0  
 **Parent POM:** pom-scijava 34.1.0  
 
 ## Plugins
@@ -24,7 +24,7 @@ mvn clean package
 
 Always use `clean` — stale `.class` files from previous builds will end up in the jar and cause duplicate-class conflicts in the Fiji updater.
 
-The jar goes to `target/LEEMandPEEM-2.3.0.jar`. Install by copying to `<Fiji>/plugins/`.
+The jar goes to `target/LEEMandPEEM-2.4.0.jar`. Install by copying to `<Fiji>/plugins/`.
 
 ## Key technical decisions
 
@@ -97,6 +97,11 @@ no charset parameter, so that path still mangles non-ASCII (cosmetic).
 **Slice-label values must be formatted with `Locale.US`** — `plotIntensityVsTag` reads them back with `Double.parseDouble`, which rejects comma decimal separators, and silently drops the tag from the dropdown.
 
 ## History
+
+### v2.4.0 (October 2026)
+- **UView_Folder_Reader**: new dialog field "Image within .dat (0 = all)" loads
+  only the Nth image (1-based) of each selected file; 0, the default, loads all.
+  Not persisted in Prefs. Files with fewer images are skipped and logged.
 
 ### v2.3.0 (September 2026)
 - **LEEM tag parsing rewritten against the format spec.** Removed the fabricated
