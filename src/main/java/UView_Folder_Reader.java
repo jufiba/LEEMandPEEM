@@ -45,10 +45,6 @@ public class UView_Folder_Reader implements PlugIn {
 			IJ.error("UView Folder Reader", "No .dat files found in:\n" + dir);
 			return;
 		}
-		Arrays.sort(allFiles);
-
-		// --- load CSV tags (Energy, M4b) if a matching CSV exists ---
-		Map<String, Map<String, String>> csvTags = loadCsvTags(folder, allFiles);
 
 		// --- options dialog (restore last-used values) ---
 		String prevFilter    = ij.Prefs.get   (PREF_FILTER,    "");
@@ -78,16 +74,51 @@ public class UView_Folder_Reader implements PlugIn {
 		ij.Prefs.set(PREF_NUM,       numImages);
 		ij.Prefs.set(PREF_INCREMENT, increment);
 
+		ImagePlus imp;
+		try {
+			imp = openFolder(folder, filter, startImg, numImages, increment, imageInDat);
+		} catch (ReadException e) {
+			IJ.error("UView Folder Reader", e.getMessage());
+			return;
+		}
+		imp.show();
+	}
+
+	/** Reason a folder could not be opened; carries a user-readable message. */
+	static class ReadException extends Exception {
+		ReadException(String msg) { super(msg); }
+	}
+
+	/**
+	 * Reads a folder of .dat files into a stack without any dialog, so other
+	 * plugins (e.g. Multiple_UView_Folder_Reading) can batch it. The returned
+	 * image is not shown.
+	 *
+	 * @param numImages  number of files to take; {@code <= 0} means all
+	 * @param imageInDat 1-based image within each .dat, or 0 for all
+	 * @throws ReadException if nothing could be read; never pops a dialog
+	 */
+	static ImagePlus openFolder(File folder, String filter, int startImg, int numImages,
+	                            int increment, int imageInDat) throws ReadException {
+		File[] allFiles = folder.listFiles((d, name) -> name.toLowerCase().endsWith(".dat"));
+		if (allFiles == null || allFiles.length == 0)
+			throw new ReadException("No .dat files found in:\n" + folder.getAbsolutePath());
+		Arrays.sort(allFiles);
+		if (numImages <= 0) numImages = allFiles.length;
+		startImg  = Math.max(1, startImg);
+		increment = Math.max(1, increment);
+
+		// --- load CSV tags (Energy, M4b) if a matching CSV exists ---
+		Map<String, Map<String, String>> csvTags = loadCsvTags(folder, allFiles);
+
 		// apply filename filter
 		List<File> filtered = new ArrayList<>();
 		for (File f : allFiles)
 			if (filter.isEmpty() || f.getName().contains(filter))
 				filtered.add(f);
 
-		if (filtered.isEmpty()) {
-			IJ.error("UView Folder Reader", "No files match the filter \"" + filter + "\".");
-			return;
-		}
+		if (filtered.isEmpty())
+			throw new ReadException("No files match the filter \"" + filter + "\".");
 
 		// apply range: starting image (1-based), count, increment
 		int from = startImg - 1;                          // 0-based
@@ -96,10 +127,8 @@ public class UView_Folder_Reader implements PlugIn {
 		for (int i = from; i < to; i += increment)
 			selected.add(filtered.get(i));
 
-		if (selected.isEmpty()) {
-			IJ.error("UView Folder Reader", "No files in the specified range.");
-			return;
-		}
+		if (selected.isEmpty())
+			throw new ReadException("No files in the specified range.");
 
 		// --- read selected files ---
 		ImageStack stack = null;
@@ -156,16 +185,14 @@ public class UView_Folder_Reader implements PlugIn {
 		IJ.showProgress(1.0);
 		IJ.showStatus("");
 
-		if (stack == null || stack.size() == 0) {
-			IJ.error("UView Folder Reader", "No valid .dat files could be read.");
-			return;
-		}
-
-		ImagePlus imp = new ImagePlus(folder.getName(), stack);
-		imp.show();
-
 		if (skipped > 0)
-			IJ.log("UView Folder Reader: skipped " + skipped + " file(s).");
+			IJ.log("UView Folder Reader: skipped " + skipped + " file(s) in " + folder.getName() + ".");
+
+		if (stack == null || stack.size() == 0)
+			throw new ReadException("No valid .dat files could be read in:\n"
+					+ folder.getAbsolutePath());
+
+		return new ImagePlus(folder.getName(), stack);
 	}
 
 	// -------------------------------------------------------------------------
@@ -262,7 +289,7 @@ public class UView_Folder_Reader implements PlugIn {
 	 *             selected image's metadata and pixels are read. Returns an
 	 *             empty list if the file holds fewer than {@code only} images.
 	 */
-	private List<FrameData> readDat(File file, int only) throws IOException {
+	private static List<FrameData> readDat(File file, int only) throws IOException {
 		try (RandomAccessFile f = new RandomAccessFile(file, "r")) {
 
 			// --- verify magic ---

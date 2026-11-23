@@ -12,6 +12,7 @@ Fiji/ImageJ2 plugins for low-energy electron microscopy (LEEM) and photoemission
 
 - **UView_reader** — SCIFIO format plugin for Elmitec `.dat` (UKSOFT2000) files. Registers with SCIFIO so files open via File > Open or drag-and-drop. Single images only.
 - **UView_Folder_Reader** — IJ1 PlugIn that reads a folder of `.dat` files into a stack. Embeds metadata (voltage, temperature, FOV, etc.) as slice labels in `key=value\n` format.
+- **Multiple_UView_Folder_Reading** — picks a parent folder and a range of numeric folder-name endings (e.g. 000–005) and opens each matching subfolder as its own stack via `UView_Folder_Reader.openFolder()`, the dialog-free entry point (throws `ReadException` instead of calling `IJ.error`, so a batch never stalls on a modal). Has its own `multiFolderReader.*` Prefs keys and "Number of images" defaults to 0 = all, so a count saved in the single reader can't truncate a batch.
 - **plotIntensityVsTag** — plots mean intensity per slice vs. a metadata tag. Has a dropdown of numeric tags parsed from slice labels, a formula field (variable `x`, supports `+−*/` and parentheses), and auto-fills the X axis label with the unit from the tag name. "Frame Number" is always available as a fallback tag.
 - **processSpectrum** — post-processes an active plot window (produced by plotIntensityVsTag): pre-edge subtraction, post-edge normalisation, and optional difference curve (curve 1 − curve 2). All settings persisted via `ij.Prefs`. Uses 5-point averaging around the chosen energies for robustness.
 - **quickNormalize** — one-shot beamtime command that chains plotIntensityVsTag and processSpectrum using their last-used Prefs settings, with no dialogs. Processes the active stack and shows a normalised plot immediately.
@@ -30,7 +31,7 @@ The jar goes to `target/LEEMandPEEM-2.4.0.jar`. Install by copying to `<Fiji>/pl
 
 - **pom-scijava 34.1.0** as parent (upgraded from pom-imagej 15.8.0 in v2.0.0).
 - **`annotationProcessorPaths`** must be set in `maven-compiler-plugin` for SciJava plugin JSON to be generated correctly under Java 25.
-- **`plugins.config`** registers `UView_Folder_Reader` under `Plugins>LEEMandPEEM`. This is what ensures the submenu appears in alphabetical order in Fiji's menu — SciJava-only plugins get appended after IJ1 plugins.
+- **`plugins.config`** registers `UView_Folder_Reader` and `Multiple_UView_Folder_Reading` under `Plugins>LEEMandPEEM`. This is what ensures the submenu appears in alphabetical order in Fiji's menu — SciJava-only plugins get appended after IJ1 plugins.
 - **`suffixSufficient() = true`** in the Checker — required for SCIFIO 0.45 auto-detection; `DefaultFormatService.getFormat()` always sets `checkerIsOpen=false`, so formats with `suffixSufficient=false` are never auto-detected.
 
 ## SCIFIO 0.45 migration notes (UView_reader)

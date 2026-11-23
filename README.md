@@ -44,6 +44,16 @@ Both comma- and semicolon-delimited files are supported. UTF-8 BOM (added by Exc
 
 Once loaded, `Energy (eV)` and `M4b` appear in the **Plot Intensity vs Tag** tag dropdowns alongside the metadata embedded in the `.dat` files themselves.
 
+### Multiple UView Folder Reading
+
+**Plugins > LEEMandPEEM > Multiple UView Folder Reading**
+
+Opens several experiment folders in one go, one image (or stack) per folder. Choose the *parent* folder, then give the range of folder-name endings to load — e.g. first `000` and last `005` opens `exp_000`, `exp_001`, … `exp_005`. Each subfolder whose name ends in a number within the range is read exactly as **UView Folder Reader** would read it (companion CSV included) and the window is titled with the folder name.
+
+- **Folder name contains** restricts the match when the parent holds several series with the same endings (e.g. `Fe_003` and `Co_003`).
+- **File name contains**, **Starting image**, **Number of images** (0 = all) and **Increment** apply to the files inside every folder. **Image within .dat** works as in the single-folder reader and is not remembered.
+- Missing endings, empty folders and unreadable folders are listed in the Log window; the remaining folders still open. Press Esc to stop after the current folder.
+
 ### Metadata read from `.dat` files
 
 Both readers parse the LEEM data block described in Elmitec's [U-view file format specification](https://wiki-surfmoss.iqf.csic.es/images/8/8c/Software_UView_FileFormats_2017.pdf). This yields every LEEM2000 module reading (start voltage, objective, lens and deflector currents, stigmators, sample temperature, …) with its correct unit, plus the camera exposure and averaging mode, the Varian and additional gauges, micrometer position, field of view and calibration factor, MCP screen and channelplate voltages, phi/theta, mirror state and spin.
