@@ -5,7 +5,7 @@
 Fiji/ImageJ2 plugins for low-energy electron microscopy (LEEM) and photoemission electron microscopy (PEEM), targeting Elmitec instruments running U-view 2002 software.
 
 **GitHub:** https://github.com/Jufiba/LEEMandPEEM  
-**Current version:** 2.5.0  
+**Current version:** 2.6.0  
 **Parent POM:** pom-scijava 34.1.0  
 
 ## Plugins
@@ -25,7 +25,7 @@ mvn clean package
 
 Always use `clean` — stale `.class` files from previous builds will end up in the jar and cause duplicate-class conflicts in the Fiji updater.
 
-The jar goes to `target/LEEMandPEEM-2.5.0.jar`. Install by copying to `<Fiji>/plugins/`.
+The jar goes to `target/LEEMandPEEM-2.6.0.jar`. Install by copying to `<Fiji>/plugins/`.
 
 ## Key technical decisions
 
@@ -98,6 +98,28 @@ no charset parameter, so that path still mangles non-ASCII (cosmetic).
 **Slice-label values must be formatted with `Locale.US`** — `plotIntensityVsTag` reads them back with `Double.parseDouble`, which rejects comma decimal separators, and silently drops the tag from the dropdown.
 
 ## History
+
+### v2.6.0 (November 2026)
+- **UView_Folder_Reader**: energies now come from the `*_meta.csv` file the
+  Solaris DEMETER acquisition writes for every measurement (e.g.
+  `Mn_Fe_2_Mo3O8-014-XAS_meta.csv`). Search order: `*_meta.csv` in the data
+  folder (one named after the folder preferred), `<folder>_meta.csv` beside the
+  folder, then the legacy non-meta CSV. Columns matched loosely (`Energy`,
+  `Energy (eV)`, `Photon energy`, ...); `,` `;` or tab delimiters; quoted
+  fields; decimal commas converted to dots. Rows matched by a filename column
+  when one exists, otherwise by sorted position (with a warning on count
+  mismatch). Tag key stays `Energy (eV)` so saved plot settings keep working.
+- **processSpectrum**: fixed crash on plots with curves added via
+  *Data>>Add from Plot*. Those keep their own x arrays, so the ResultsTable is
+  `X0,Y0,X1,Y1` and the old code read `X1` as a curve, then threw on
+  `getPlotObjectLabel` for a non-existent object. Curves are now read with
+  `getDataObjectArrays`, each processed on its own x; curve 2 is linearly
+  interpolated onto curve 1 for the difference.
+- **processSpectrum**: new *Asymmetry* option, (I1−I2)/(I1+I2) of the input
+  (unprocessed) curves, shown in its own plot (after pre-edge subtraction the
+  denominator is ~0 below the edge). CSV export writes one X column per curve
+  when the energy grids differ. Checkbox labels changed from "Show difference"
+  / "Show asymmetry" to "Difference" / "Asymmetry" so their macro keys differ.
 
 ### v2.5.0 (November 2026)
 - **Multiple_UView_Folder_Reading**: new plugin that opens a range of

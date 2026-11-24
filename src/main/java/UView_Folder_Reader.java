@@ -108,7 +108,7 @@ public class UView_Folder_Reader implements PlugIn {
 		startImg  = Math.max(1, startImg);
 		increment = Math.max(1, increment);
 
-		// --- load CSV tags (Energy, M4b) if a matching CSV exists ---
+		// --- load CSV tags (Energy, M4b) from *_meta.csv or a legacy CSV ---
 		Map<String, Map<String, String>> csvTags = loadCsvTags(folder, allFiles);
 
 		// apply filename filter
@@ -198,74 +198,180 @@ public class UView_Folder_Reader implements PlugIn {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Looks for a CSV file in {@code folder} whose name does not contain "meta".
-	 * Parses its "Energy" and "M4b" columns and returns a map from each .dat
-	 * filename (by sorted position) to a map of tag key → value.
+	 * Finds the CSV holding the per-image energies and parses it.
+	 *
+	 * Search order (first file that has an Energy or M4b column wins):
+	 * <ol>
+	 *   <li>{@code *_meta.csv} in the data folder (e.g.
+	 *       {@code Mn_Fe_2_Mo3O8-014-XAS_meta.csv}); one whose prefix matches
+	 *       the folder name is preferred if there are several,</li>
+	 *   <li>{@code <folder name>_meta.csv} next to the data folder,</li>
+	 *   <li>the legacy layout: any other {@code .csv} in the data folder.</li>
+	 * </ol>
+	 *
+	 * Returns a map from .dat filename to tag key → value. If the CSV has a
+	 * column whose values are the .dat filenames, rows are matched by name;
+	 * otherwise row n is assigned to the n-th .dat file in sorted order.
 	 */
 	private static Map<String, Map<String, String>> loadCsvTags(File folder, File[] sortedFiles) {
-		File[] csvFiles = folder.listFiles((d, name) -> {
+		List<File> candidates = new ArrayList<>();
+
+		File[] metaHere = folder.listFiles((d, name) -> name.toLowerCase().endsWith("_meta.csv"));
+		if (metaHere != null && metaHere.length > 0) {
+			Arrays.sort(metaHere);
+			String folderName = folder.getName().toLowerCase();
+			for (File f : metaHere)                       // name matches folder first
+				if (f.getName().toLowerCase().equals(folderName + "_meta.csv")) candidates.add(f);
+			for (File f : metaHere)
+				if (!candidates.contains(f)) candidates.add(f);
+		}
+		File parent = folder.getAbsoluteFile().getParentFile();
+		if (parent != null) {
+			File besideFolder = new File(parent, folder.getName() + "_meta.csv");
+			if (besideFolder.isFile()) candidates.add(besideFolder);
+		}
+		File[] legacy = folder.listFiles((d, name) -> {
 			String lower = name.toLowerCase();
-			return lower.endsWith(".csv") && !lower.contains("meta");
+			return lower.endsWith(".csv") && !lower.endsWith("_meta.csv");
 		});
-		if (csvFiles == null || csvFiles.length == 0) {
+		if (legacy != null) {
+			Arrays.sort(legacy);
+			candidates.addAll(Arrays.asList(legacy));
+		}
+
+		if (candidates.isEmpty()) {
 			IJ.log("UView Folder Reader: no CSV file found in " + folder.getAbsolutePath());
 			return Collections.emptyMap();
 		}
+		for (File csv : candidates) {
+			Map<String, Map<String, String>> r = parseCsv(csv, sortedFiles);
+			if (r != null) return r;
+		}
+		IJ.log("UView Folder Reader: no CSV with an 'Energy' or 'M4b' column — energies not added.");
+		return Collections.emptyMap();
+	}
 
-		Arrays.sort(csvFiles);
-		File csvFile = csvFiles[0];
-		IJ.log("UView Folder Reader: found CSV " + csvFile.getAbsolutePath());
-
+	/** Parses one CSV; returns null if it has neither an Energy nor an M4b column. */
+	private static Map<String, Map<String, String>> parseCsv(File csvFile, File[] sortedFiles) {
+		IJ.log("UView Folder Reader: reading CSV " + csvFile.getAbsolutePath());
 		Map<String, Map<String, String>> result = new LinkedHashMap<>();
 		try (BufferedReader br = new BufferedReader(
 				new InputStreamReader(new FileInputStream(csvFile), StandardCharsets.UTF_8))) {
 			String header = br.readLine();
+			while (header != null && header.trim().isEmpty()) header = br.readLine();
 			if (header == null) {
 				IJ.log("UView Folder Reader: CSV is empty.");
-				return result;
+				return null;
 			}
 			// strip UTF-8 BOM if present (Excel on Windows adds this)
-			if (header.startsWith("\uFEFF")) {
-				IJ.log("UView Folder Reader: stripped UTF-8 BOM from CSV header.");
-				header = header.substring(1);
-			}
+			if (header.startsWith("\uFEFF")) header = header.substring(1);
 			IJ.log("UView Folder Reader: CSV header = [" + header + "]");
 
-			String delim = header.contains(";") ? ";" : ",";
-			IJ.log("UView Folder Reader: delimiter = [" + delim + "]");
-			String[] cols = header.split(delim);
-			int energyIdx = -1, m4bIdx = -1;
-			for (int i = 0; i < cols.length; i++) {
-				String col = cols[i].trim();
-				IJ.log("  col[" + i + "] = [" + col + "] (len=" + col.length() + ")");
-				if (col.equalsIgnoreCase("Energy")) energyIdx = i;
-				else if (col.equalsIgnoreCase("M4b"))  m4bIdx  = i;
-			}
-			IJ.log("UView Folder Reader: energyIdx=" + energyIdx + " m4bIdx=" + m4bIdx);
-			if (energyIdx < 0 && m4bIdx < 0) {
-				IJ.log("UView Folder Reader: neither 'Energy' nor 'M4b' column found — skipping CSV.");
-				return result;
+			String delim = header.contains(";") ? ";" : header.contains("\t") ? "\t" : ",";
+			String[] cols = header.split(delim, -1);
+			for (int i = 0; i < cols.length; i++) cols[i] = unquote(cols[i]);
+
+			int energyIdx = findColumn(cols, "energy");
+			int m4bIdx    = findColumn(cols, "m4b");
+			IJ.log("UView Folder Reader: energy column = "
+					+ (energyIdx >= 0 ? "[" + cols[energyIdx] + "]" : "none")
+					+ ", M4b column = " + (m4bIdx >= 0 ? "[" + cols[m4bIdx] + "]" : "none"));
+			if (energyIdx < 0 && m4bIdx < 0) return null;
+
+			Set<String> datNames = new HashSet<>();
+			for (File f : sortedFiles) datNames.add(f.getName());
+
+			List<String[]> rows = new ArrayList<>();
+			String line;
+			while ((line = br.readLine()) != null) {
+				if (line.trim().isEmpty()) continue;
+				String[] vals = line.split(delim, -1);
+				for (int i = 0; i < vals.length; i++) vals[i] = unquote(vals[i]);
+				rows.add(vals);
 			}
 
-			int fileIdx = 0;
-			String line;
-			while ((line = br.readLine()) != null && fileIdx < sortedFiles.length) {
-				String[] vals = line.split(delim);
-				Map<String, String> tags = new LinkedHashMap<>();
-				if (energyIdx >= 0 && energyIdx < vals.length)
-					tags.put("Energy (eV)", vals[energyIdx].trim());
-				if (m4bIdx >= 0 && m4bIdx < vals.length)
-					tags.put("M4b", vals[m4bIdx].trim());
-				if (!tags.isEmpty())
-					result.put(sortedFiles[fileIdx].getName(), tags);
-				fileIdx++;
+			// A column holding the .dat filenames lets rows be matched by name,
+			// which survives missing/extra rows. Otherwise fall back to row order.
+			int nameIdx = -1;
+			if (!rows.isEmpty()) {
+				String[] first = rows.get(0);
+				for (int c = 0; c < first.length && nameIdx < 0; c++)
+					if (datNames.contains(baseName(first[c]))) nameIdx = c;
 			}
-			IJ.log("UView Folder Reader: loaded " + result.size() + " rows from CSV.");
+			if (nameIdx >= 0)
+				IJ.log("UView Folder Reader: matching rows to .dat files by column ["
+						+ (nameIdx < cols.length ? cols[nameIdx] : "#" + nameIdx) + "]");
+			else if (rows.size() != sortedFiles.length)
+				IJ.log("UView Folder Reader: warning — CSV has " + rows.size()
+						+ " rows but the folder has " + sortedFiles.length
+						+ " .dat files; matching by row order.");
+
+			for (int r = 0; r < rows.size(); r++) {
+				String[] vals = rows.get(r);
+				String datName;
+				if (nameIdx >= 0) {
+					if (nameIdx >= vals.length) continue;
+					datName = baseName(vals[nameIdx]);
+					if (!datNames.contains(datName)) continue;
+				} else {
+					if (r >= sortedFiles.length) break;
+					datName = sortedFiles[r].getName();
+				}
+				Map<String, String> tags = new LinkedHashMap<>();
+				if (energyIdx >= 0 && energyIdx < vals.length && !vals[energyIdx].isEmpty())
+					tags.put("Energy (eV)", numeric(vals[energyIdx]));
+				if (m4bIdx >= 0 && m4bIdx < vals.length && !vals[m4bIdx].isEmpty())
+					tags.put("M4b", numeric(vals[m4bIdx]));
+				if (!tags.isEmpty()) result.put(datName, tags);
+			}
+			IJ.log("UView Folder Reader: loaded " + result.size() + " rows from "
+					+ csvFile.getName() + ".");
 		} catch (IOException e) {
 			IJ.log("UView Folder Reader: could not read CSV " + csvFile.getName()
 					+ " — " + e.getMessage());
+			return null;
 		}
 		return result;
+	}
+
+	/**
+	 * Column index for {@code key}: an exact (case-insensitive) match wins,
+	 * then a header that starts with it (e.g. "Energy (eV)", "Energy_eV"),
+	 * then one that contains it. -1 if none.
+	 */
+	private static int findColumn(String[] cols, String key) {
+		for (int i = 0; i < cols.length; i++)
+			if (cols[i].equalsIgnoreCase(key)) return i;
+		for (int i = 0; i < cols.length; i++)
+			if (cols[i].toLowerCase().startsWith(key)) return i;
+		for (int i = 0; i < cols.length; i++)
+			if (cols[i].toLowerCase().contains(key)) return i;
+		return -1;
+	}
+
+	private static String unquote(String s) {
+		s = s.trim();
+		if (s.length() >= 2 && s.startsWith("\"") && s.endsWith("\""))
+			s = s.substring(1, s.length() - 1).trim();
+		return s;
+	}
+
+	/** Strips any directory part, so "C:\\data\\img001.dat" matches "img001.dat". */
+	private static String baseName(String s) {
+		int k = Math.max(s.lastIndexOf('/'), s.lastIndexOf('\\'));
+		return k >= 0 ? s.substring(k + 1) : s;
+	}
+
+	/**
+	 * plotIntensityVsTag parses tag values with Double.parseDouble, so a
+	 * decimal comma ("710,5", common in ';'-separated CSVs) must become a dot.
+	 */
+	private static String numeric(String v) {
+		if (v.indexOf(',') >= 0 && v.indexOf('.') < 0) {
+			String dotted = v.replace(',', '.');
+			try { Double.parseDouble(dotted); return dotted; } catch (NumberFormatException ignored) { }
+		}
+		return v;
 	}
 
 	// -------------------------------------------------------------------------
