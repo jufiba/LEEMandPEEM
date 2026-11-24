@@ -22,13 +22,19 @@ Files holding several images contribute one slice per image, each with its own m
 
 #### Companion CSV support (Solaris DEMETER beamline)
 
-If the folder contains a CSV file whose name does not include the word `meta`, the plugin reads it and merges its per-image metadata into the stack. The rows of the CSV are matched to the `.dat` files by position (both sorted alphabetically), so the first data row corresponds to the first image, and so on.
+The plugin looks for the metadata CSV written for every measurement, named `<measurement>_meta.csv` (e.g. `Mn_Fe_2_Mo3O8-014-XAS_meta.csv`), and merges its per-image values into the stack. It is searched for, in order:
+
+1. any `*_meta.csv` in the data folder (one named after the folder is preferred if there are several),
+2. `<folder name>_meta.csv` next to the data folder,
+3. any other `.csv` in the data folder (older acquisition layout).
+
+If the CSV has a column containing the `.dat` file names, rows are matched to images by name. Otherwise they are matched by position (both sorted alphabetically), so the first data row corresponds to the first image, and so on; a warning is logged if the row and file counts differ. The Log window shows which file and columns were used.
 
 The following columns are recognised and added as slice label tags:
 
 | CSV column | Slice label tag | Description |
 |------------|-----------------|-------------|
-| `Energy`   | `Energy (eV)`   | Photon energy set point |
+| `Energy` (or any header containing "energy", e.g. `Energy (eV)`) | `Energy (eV)`   | Photon energy set point |
 | `M4b`      | `M4b`           | M4 mirror drain current (flux monitor) |
 
 This matches the metadata CSV format produced by the PEEM data acquisition system at the [Solaris](https://www.synchrotron.uj.edu.pl) DEMETER beamline, where each XAS/NEXAFS scan folder contains a CSV file with one row per image alongside columns for photon energy, flux monitors, and other beamline parameters. A typical file looks like:
@@ -40,7 +46,7 @@ Energy,ROI1_Intensity,ROI2_Intensity,...,M4b,...
 ...
 ```
 
-Both comma- and semicolon-delimited files are supported. UTF-8 BOM (added by Excel on Windows) is stripped automatically.
+Comma-, semicolon- and tab-delimited files are supported, as are quoted fields and decimal commas. UTF-8 BOM (added by Excel on Windows) is stripped automatically.
 
 Once loaded, `Energy (eV)` and `M4b` appear in the **Plot Intensity vs Tag** tag dropdowns alongside the metadata embedded in the `.dat` files themselves.
 
@@ -93,8 +99,11 @@ Post-processes an active plot window produced by **Plot Intensity vs Tag**. Oper
 1. **Pre-edge subtraction** — subtracts the average intensity around a chosen energy
 2. **Post-edge normalisation** — divides by the average intensity around a second chosen energy
 3. **Difference** — curve 1 minus curve 2 (available when the plot has two or more curves)
+4. **Asymmetry** — (I1 − I2) / (I1 + I2) of the curves as plotted (before subtraction and normalisation), shown in its own plot window
 
-Each energy value is averaged over the five nearest points for robustness against noise. The processed curves are shown in a new plot window. All settings are remembered between runs.
+Curves may come from different scans: a curve added with the plot window's *Data >> Add from Plot* keeps its own energy points, and each curve is processed on its own energies. For the difference and asymmetry, curve 2 is linearly interpolated onto curve 1's energies; where the scans do not overlap the result is left empty.
+
+Each energy value is averaged over the five nearest points for robustness against noise. The processed curves are shown in a new plot window. With *Save CSV*, curves sharing the same energies are written with one energy column, otherwise each curve gets its own. All settings are remembered between runs.
 
 ### Quick Normalize
 
@@ -104,7 +113,7 @@ One-shot beamtime command that chains **Plot Intensity vs Tag** and **Process Sp
 
 ## Typical workflow: XAS/NEXAFS at Solaris DEMETER
 
-1. Open the scan folder with **UView Folder Reader**. If the beamline CSV is present, `Energy (eV)` and `M4b` are automatically added to every slice.
+1. Open the scan folder with **UView Folder Reader**. If the beamline `_meta.csv` is present, `Energy (eV)` and `M4b` are automatically added to every slice.
 2. Draw one or more ROIs on the stack (use the ROI Manager for multiple regions).
 3. Run **Plot Intensity vs Tag**:
    - Set *X tag* to `Energy (eV)`.
@@ -113,7 +122,7 @@ One-shot beamtime command that chains **Plot Intensity vs Tag** and **Process Sp
 4. Run **Process Spectrum** on the resulting plot:
    - Set a pre-edge energy (flat region before the absorption edge) and a post-edge energy (region above the edge).
    - Enable *Pre-edge subtraction* and *Post-edge normalisation* to obtain a normalised NEXAFS spectrum (0 before edge, 1 after edge).
-   - Optionally enable *Difference* to compute the XMCD signal (two-ROI or two-curve plots).
+   - Optionally enable *Difference* to compute the XMCD signal, and/or *Asymmetry* for (I1 − I2)/(I1 + I2) (two-ROI or two-curve plots, including a curve added from another plot with *Data >> Add from Plot*).
 5. For subsequent datasets at the same beamline, run **Quick Normalize** directly — it reuses the tag, formula, and energy settings from the previous run with no dialogs.
 6. Check **Save CSV** in Plot Intensity vs Tag to export raw curves for further processing, e.g. with Python/matplotlib.
 
